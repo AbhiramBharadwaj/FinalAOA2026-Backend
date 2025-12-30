@@ -1,0 +1,399 @@
+import express from 'express';
+import Registration from '../models/Registration.js';
+import Payment from '../models/Payment.js';
+import AccommodationBooking from '../models/AccommodationBooking.js';
+import Accommodation from '../models/Accommodation.js';
+import Abstract from '../models/Abstract.js';
+import Feedback from '../models/Feedback.js';
+import User from '../models/User.js';
+import Attendance from '../models/Attendance.js'; // Add this import
+import { authenticateAdmin } from '../middleware/auth.js';
+
+const router = express.Router();
+
+// Enhanced Dashboard with more comprehensive data
+router.get('/dashboard', authenticateAdmin, async (req, res) => {
+  try {
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    const last7Days = new Date(today);
+    last7Days.setDate(last7Days.getDate() - 7);
+
+    // === REGISTRATIONS ===
+    const totalRegistrations = await Registration.countDocuments();
+    const paidRegistrations = await Registration.countDocuments({ paymentStatus: 'PAID' });
+    const pendingRegistrations = await Registration.countDocuments({ paymentStatus: 'PENDING' });
+    const todayRegistrations = await Registration.countDocuments({
+      createdAt: { $gte: new Date(today.setHours(0, 0, 0, 0)) }
+    });
+
+    // Registrations by role with paid status
+    const registrationsByRole = await Registration.aggregate([
+      {
+        $lookup: {
+          from: 'users',
+          localField: 'userId',
+          foreignField: '_id',
+          as: 'user'
+        }
+      },
+      { $unwind: '$user' },
+      {
+        $group: {
+          _id: '$user.role',
+          count: { $sum: 1 },
+          paidCount: {
+            $sum: { $cond: [{ $eq: ['$paymentStatus', 'PAID'] }, 1, 0] }
+          },
+          revenue: {
+            $sum: { $cond: [{ $eq: ['$paymentStatus', 'PAID'] }, '$totalAmount', 0] }
+          }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    // === PAYMENTS & REVENUE ===
+    const totalRevenue = await Registration.aggregate([
+      { $match: { paymentStatus: 'PAID' } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]);
+
+    const accommodationRevenue = await AccommodationBooking.aggregate([
+      { $match: { paymentStatus: 'PAID' } },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]);
+
+    const revenueByPhase = await Registration.aggregate([
+      { $match: { paymentStatus: 'PAID' } },
+      {
+        $group: {
+          _id: '$bookingPhase',
+          count: { $sum: 1 },
+          revenue: { $sum: '$totalAmount' }
+        }
+      }
+    ]);
+
+    // Today's revenue
+    const todayRevenue = await Registration.aggregate([
+      {
+        $match: {
+          paymentStatus: 'PAID',
+          createdAt: { $gte: new Date(today.setHours(0, 0, 0, 0)) }
+        }
+      },
+      { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+    ]);
+
+    // Recent payments (last 10)
+    const recentPayments = await Payment.find({ status: 'SUCCESS' })
+      .populate('userId', 'name email phone')
+      .sort({ createdAt: -1 })
+      .limit(10)
+      .lean();
+
+    // === ACCOMMODATION ===
+    const totalAccommodationBookings = await AccommodationBooking.countDocuments();
+    const paidAccommodationBookings = await AccommodationBooking.countDocuments({ 
+      paymentStatus: 'PAID' 
+    });
+
+    // === ATTENDANCE ===
+    const totalAttendanceRecords = await Attendance.countDocuments();
+    const attendedCount = await Attendance.countDocuments({ totalScans: { $gt: 0 } });
+    const attendanceRate = totalAttendanceRecords > 0 
+      ? Math.round((attendedCount / totalAttendanceRecords) * 100) 
+      : 0;
+
+    // === ABSTRACTS ===
+    const abstractStats = await Abstract.aggregate([
+      {
+        $group: {
+          _id: '$status',
+          count: { $sum: 1 }
+        }
+      },
+      { $sort: { count: -1 } }
+    ]);
+
+    // === FEEDBACK ===
+    const totalFeedback = await Feedback.countDocuments();
+    const recentFeedback = await Feedback.find()
+      .populate('userId', 'name email')
+      .sort({ createdAt: -1 })
+      .limit(5)
+      .lean();
+
+    // === USERS ===
+    const totalUsers = await User.countDocuments();
+    const adminUsers = await User.countDocuments({ role: 'ADMIN' });
+
+    // === TRENDING DATA (Last 7 days) ===
+    const registrationsLast7Days = await Registration.countDocuments({
+      createdAt: { $gte: last7Days }
+    });
+
+    const paymentsLast7Days = await Payment.countDocuments({
+      status: 'SUCCESS',
+      createdAt: { $gte: last7Days }
+    });
+
+    res.json({
+      // Core Stats
+      registrations: {
+        total: totalRegistrations,
+        paid: paidRegistrations,
+        pending: pendingRegistrations,
+        today: todayRegistrations,
+        byRole: registrationsByRole,
+        byPhase: revenueByPhase
+      },
+      
+      // Revenue
+      revenue: {
+        registration: totalRevenue[0]?.total || 0,
+        accommodation: accommodationRevenue[0]?.total || 0,
+        total: (totalRevenue[0]?.total || 0) + (accommodationRevenue[0]?.total || 0),
+        today: todayRevenue[0]?.total || 0
+      },
+
+      // Accommodation
+      accommodation: {
+        totalBookings: totalAccommodationBookings,
+        paidBookings: paidAccommodationBookings
+      },
+
+      // Attendance
+      attendance: {
+        totalRecords: totalAttendanceRecords,
+        attended: attendedCount,
+        rate: attendanceRate,
+        pending: totalAttendanceRecords - attendedCount
+      },
+
+      // Abstracts & Feedback
+      abstracts: abstractStats,
+      feedback: {
+        total: totalFeedback,
+        recent: recentFeedback
+      },
+
+      // Users
+      users: {
+        total: totalUsers,
+        admins: adminUsers
+      },
+
+      // Trending (Last 7 days)
+      trending: {
+        registrations: registrationsLast7Days,
+        payments: paymentsLast7Days
+      },
+
+      // Recent Activity
+      recentPayments,
+      
+      // Timestamps
+      generatedAt: new Date().toISOString()
+    });
+
+  } catch (error) {
+    console.error('Enhanced Dashboard error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+// Export endpoints for attendance (add these)
+router.get('/export-attended', authenticateAdmin, async (req, res) => {
+  try {
+    // This would use a library like exceljs to generate Excel file
+    // Implementation depends on your excel generation setup
+    res.json({ message: 'Attended list export endpoint' });
+  } catch (error) {
+    res.status(500).json({ message: 'Export failed' });
+  }
+});
+
+router.get('/export-not-attended', authenticateAdmin, async (req, res) => {
+  try {
+    // Implementation for not attended export
+    res.json({ message: 'Not attended list export endpoint' });
+  } catch (error) {
+    res.status(500).json({ message: 'Export failed' });
+  }
+});
+
+// Rest of your existing routes remain the same...
+router.get('/registrations', authenticateAdmin, async (req, res) => {
+  try {
+    const { status, role, phase } = req.query;
+    let filter = {};
+
+    if (status) filter.paymentStatus = status;
+    if (phase) filter.bookingPhase = phase;
+
+    const registrations = await Registration.find(filter)
+      .populate('userId', 'name email phone role membershipId')
+      .sort({ createdAt: -1 });
+
+    let filteredRegistrations = registrations;
+    if (role) {
+      filteredRegistrations = registrations.filter(reg => reg.userId.role === role);
+    }
+
+    res.json(filteredRegistrations);
+  } catch (error) {
+    console.error('Get registrations error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.get('/payments', authenticateAdmin, async (req, res) => {
+  try {
+    const { status, type } = req.query;
+    let filter = {};
+
+    if (status) filter.status = status;
+    if (type) filter.paymentType = type;
+
+    const payments = await Payment.find(filter)
+      .populate('userId', 'name email')
+      .populate('registrationId')
+      .populate('accommodationBookingId')
+      .sort({ createdAt: -1 });
+
+    res.json(payments);
+  } catch (error) {
+    console.error('Get payments error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+router.get('/registrations', authenticateAdmin, async (req, res) => {
+  try {
+    const { status, role, phase } = req.query;
+    let filter = {};
+
+    if (status) filter.paymentStatus = status;
+    if (phase) filter.bookingPhase = phase;
+
+    const registrations = await Registration.find(filter)
+      .populate('userId', 'name email phone role membershipId')
+      .sort({ createdAt: -1 });
+
+    
+    let filteredRegistrations = registrations;
+    if (role) {
+      filteredRegistrations = registrations.filter(reg => reg.userId.role === role);
+    }
+
+    res.json(filteredRegistrations);
+  } catch (error) {
+    console.error('Get registrations error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+router.get('/payments', authenticateAdmin, async (req, res) => {
+  try {
+    const { status, type } = req.query;
+    let filter = {};
+
+    if (status) filter.status = status;
+    if (type) filter.paymentType = type;
+
+    const payments = await Payment.find(filter)
+      .populate('userId', 'name email')
+      .populate('registrationId')
+      .populate('accommodationBookingId')
+      .sort({ createdAt: -1 });
+
+    res.json(payments);
+  } catch (error) {
+    console.error('Get payments error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+router.post('/accommodations', authenticateAdmin, async (req, res) => {
+  try {
+    const accommodation = new Accommodation(req.body);
+    await accommodation.save();
+
+    res.status(201).json({
+      message: 'Accommodation created successfully',
+      accommodation
+    });
+  } catch (error) {
+    console.error('Create accommodation error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+router.put('/accommodations/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const accommodation = await Accommodation.findByIdAndUpdate(
+      req.params.id,
+      req.body,
+      { new: true }
+    );
+
+    if (!accommodation) {
+      return res.status(404).json({ message: 'Accommodation not found' });
+    }
+
+    res.json({
+      message: 'Accommodation updated successfully',
+      accommodation
+    });
+  } catch (error) {
+    console.error('Update accommodation error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+router.delete('/accommodations/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const accommodation = await Accommodation.findByIdAndUpdate(
+      req.params.id,
+      { isActive: false },
+      { new: true }
+    );
+
+    if (!accommodation) {
+      return res.status(404).json({ message: 'Accommodation not found' });
+    }
+
+    res.json({ message: 'Accommodation deleted successfully' });
+  } catch (error) {
+    console.error('Delete accommodation error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+
+router.get('/accommodation-bookings', authenticateAdmin, async (req, res) => {
+  try {
+    const { status } = req.query;
+    const filter = status ? { paymentStatus: status } : {};
+
+    const bookings = await AccommodationBooking.find(filter)
+      .populate('userId', 'name email phone')
+      .populate('accommodationId', 'name location')
+      .sort({ createdAt: -1 });
+
+    res.json(bookings);
+  } catch (error) {
+    console.error('Get accommodation bookings error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+export default router;
