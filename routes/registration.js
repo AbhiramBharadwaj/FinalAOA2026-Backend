@@ -31,7 +31,7 @@ router.post(
           .json({ message: 'Registration type is required' });
       }
 
-      // AOA Certified Course validation: only AOA / NON_AOA allowed
+      
       if (
         registrationType === 'AOA_CERTIFIED_COURSE' &&
         req.user.role === 'PGS'
@@ -60,7 +60,7 @@ router.post(
           .json({ message: 'User already has a registration' });
       }
 
-      // Capacity check for AOA certified course (limited 40)
+      
       if (registrationType === 'AOA_CERTIFIED_COURSE') {
         const aoaCourseCount = await Registration.countDocuments({
           registrationType: 'AOA_CERTIFIED_COURSE',
@@ -86,9 +86,7 @@ router.post(
       }
 
       const accompanyingCount =
-        registrationType === 'AOA_CERTIFIED_COURSE'
-          ? 0
-          : parseInt(accompanyingPersons, 10) || 0;
+         parseInt(accompanyingPersons, 10) || 0;
       const accompanyingTotal = accompanyingCount * 7000;
       const grandTotal = pricing.totalAmount + accompanyingTotal;
 
@@ -107,7 +105,7 @@ router.post(
             : undefined,
       };
 
-      // College letter for PGS
+      
       if (req.user.role === 'PGS' && req.files?.collegeLetter) {
         const file = req.files.collegeLetter[0];
         registrationData.collegeLetter = {
@@ -177,7 +175,7 @@ router.get('/pricing', authenticateUser, async (req, res) => {
       bookingPhase
     );
 
-    // capacity info for front‑end
+    
     const aoaCourseCount = await Registration.countDocuments({
       registrationType: 'AOA_CERTIFIED_COURSE',
     });
