@@ -25,12 +25,20 @@ const registrationSchema = new mongoose.Schema(
         'critical-incidents',
         'pocus',
         'maternal-collapse',
+        '',
       ],
-      required: function () {
-        return (
-          this.registrationType === 'WORKSHOP_CONFERENCE' ||
-          this.registrationType === 'COMBO'
-        );
+      default: null,
+      validate: {
+        validator: function (value) {
+          if (
+            this.registrationType === 'WORKSHOP_CONFERENCE' ||
+            this.registrationType === 'COMBO'
+          ) {
+            return value && value.trim() !== '';
+          }
+          return true; 
+        },
+        message: 'Workshop selection is required for WORKSHOP_CONFERENCE or COMBO',
       },
     },
     accompanyingPersons: {
@@ -38,18 +46,71 @@ const registrationSchema = new mongoose.Schema(
       min: 0,
       default: 0,
     },
-    accompanyingTotal: {
+    accompanyingBase: {
       type: Number,
       default: 0,
     },
+    accompanyingGST: {
+      type: Number,
+      default: 0,
+    },
+
+    
+    addAoaCourse: {
+      type: Boolean,
+      default: false,
+    },
+    aoaCourseBase: {
+      type: Number,
+      default: 0,
+    },
+    aoaCourseGST: {
+      type: Number,
+      default: 0,
+    },
+
     bookingPhase: {
       type: String,
       enum: ['EARLY_BIRD', 'REGULAR', 'SPOT'],
       required: true,
     },
+
+    
+    packageBase: {
+      type: Number,
+      default: 0,
+    },
+    packageGST: {
+      type: Number,
+      default: 0,
+    },
+
+    
+    totalBase: {
+      type: Number,
+      default: 0,
+    },
+    totalGST: {
+      type: Number,
+      default: 0,
+    },
+    subtotalWithGST: {
+      type: Number,
+      default: 0,
+    },
+    processingFee: {
+      type: Number,
+      default: 0,
+    },
+    totalAmount: {
+      type: Number,
+      required: true, 
+    },
+
+    
     basePrice: {
       type: Number,
-      required: true,
+      default: 0,
     },
     workshopPrice: {
       type: Number,
@@ -63,10 +124,7 @@ const registrationSchema = new mongoose.Schema(
       type: Number,
       default: 0,
     },
-    totalAmount: {
-      type: Number,
-      required: true,
-    },
+
     paymentStatus: {
       type: String,
       enum: ['PENDING', 'PAID', 'FAILED'],
@@ -92,10 +150,15 @@ const registrationSchema = new mongoose.Schema(
   }
 );
 
+
 registrationSchema.pre('save', async function (next) {
-  if (this.isNew) {
-    const count = await this.constructor.countDocuments();
-    this.registrationNumber = `AOA2026-${String(count + 1).padStart(4, '0')}`;
+  if (this.isNew && !this.registrationNumber) {
+    try {
+      const count = await this.constructor.countDocuments();
+      this.registrationNumber = `AOA2026-${String(count + 1).padStart(4, '0')}`;
+    } catch (err) {
+      return next(err);
+    }
   }
   next();
 });

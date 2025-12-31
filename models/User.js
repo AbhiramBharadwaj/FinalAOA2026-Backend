@@ -22,7 +22,7 @@ const userSchema = new mongoose.Schema({
   phone: {
     type: String,
     required: true,
-    unique: true, // Added unique constraint
+    unique: true, 
     trim: true,
     match: [/^[\d\s-()]{10,15}$/, 'Please enter valid phone number']
   },
@@ -36,7 +36,7 @@ const userSchema = new mongoose.Schema({
     enum: ['AOA', 'NON_AOA', 'PGS'],
     required: true
   },
-  // Location Details
+  
   country: {
     type: String,
     required: true,
@@ -53,18 +53,18 @@ const userSchema = new mongoose.Schema({
     required: true,
     trim: true
   },
-  address: { // NEW FIELD
+  address: { 
     type: String,
     required: true,
     trim: true
   },
-  pincode: { // NEW FIELD
+  pincode: { 
     type: String,
     required: true,
     trim: true,
     match: [/^\d{4,10}$/, 'Please enter valid pincode/zip (4-10 digits)']
   },
-  // Professional Details
+  
   instituteHospital: {
     type: String,
     required: true,
@@ -84,16 +84,16 @@ const userSchema = new mongoose.Schema({
     type: String,
     trim: true
   },
-  // Membership & Documents
+  
   membershipId: {
     type: String,
     sparse: true,
     unique: true
   },
   collegeLetter: {
-    type: String // URL/path to uploaded college letter
+    type: String 
   },
-  // Status
+  
   isActive: {
     type: Boolean,
     default: true
@@ -110,7 +110,7 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// Hash password before saving
+
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
   
@@ -123,17 +123,17 @@ userSchema.pre('save', async function(next) {
   }
 });
 
-// Compare password method
+
 userSchema.methods.comparePassword = async function(candidatePassword) {
   return bcrypt.compare(candidatePassword, this.password);
 };
 
-// Virtual for full address
+
 userSchema.virtual('fullAddress').get(function() {
   return `${this.address}, ${this.city}, ${this.state}, ${this.pincode}, ${this.country}`;
 });
 
-// Ensure virtuals in JSON
+
 userSchema.set('toJSON', {
   virtuals: true,
   transform: (doc, ret) => {

@@ -10,119 +10,142 @@ const router = express.Router();
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
+
+
 router.post(
   '/',
   authenticateUser,
-  upload.fields([
-    { name: 'registrationType', maxCount: 1 },
-    { name: 'collegeLetter', maxCount: 1 },
-  ]),
+  upload.single('collegeLetter'),
   async (req, res) => {
     try {
       const {
         registrationType,
         selectedWorkshop,
         accompanyingPersons = '0',
+        addAoaCourse = 'false',
       } = req.body;
 
       if (!registrationType) {
-        return res
-          .status(400)
-          .json({ message: 'Registration type is required' });
+        return res.status(400).json({ message: 'Registration type is required' });
       }
 
-      
-      if (
-        registrationType === 'AOA_CERTIFIED_COURSE' &&
-        req.user.role === 'PGS'
-      ) {
+      const isWorkshopType =
+        registrationType === 'WORKSHOP_CONFERENCE' || registrationType === 'COMBO';
+
+      if (isWorkshopType && !selectedWorkshop) {
+        return res.status(400).json({ message: 'Workshop selection is required' });
+      }
+
+      if (registrationType === 'AOA_CERTIFIED_COURSE' && req.user.role === 'PGS') {
         return res.status(400).json({
           message: 'AOA Certified Course is only available for AOA and Non-AOA members',
         });
       }
 
-      if (
-        (registrationType === 'WORKSHOP_CONFERENCE' ||
-          registrationType === 'COMBO') &&
-        !selectedWorkshop
-      ) {
-        return res
-          .status(400)
-          .json({ message: 'Workshop selection is required' });
-      }
-
-      const userId = req.user._id;
-
-      const existingRegistration = await Registration.findOne({ userId });
-      if (existingRegistration) {
-        return res
-          .status(400)
-          .json({ message: 'User already has a registration' });
+      if (addAoaCourse === 'true' && req.user.role === 'PGS') {
+        return res.status(400).json({
+          message: 'PGS members cannot add AOA Certified Course',
+        });
       }
 
       
-      if (registrationType === 'AOA_CERTIFIED_COURSE') {
-        const aoaCourseCount = await Registration.countDocuments({
-          registrationType: 'AOA_CERTIFIED_COURSE',
+      let registration = await Registration.findOne({ userId: req.user._id });
+
+      
+      const isAoaRequested = registrationType === 'AOA_CERTIFIED_COURSE' || addAoaCourse === 'true';
+      const wasAoaRequested = registration?.registrationType === 'AOA_CERTIFIED_COURSE' || registration?.addAoaCourse;
+
+      if (isAoaRequested && !wasAoaRequested) {
+        
+        const currentCount = await Registration.countDocuments({
+          $or: [
+            { registrationType: 'AOA_CERTIFIED_COURSE' },
+            { addAoaCourse: true },
+          ],
         });
-        if (aoaCourseCount >= 40) {
-          return res
-            .status(400)
-            .json({ message: 'AOA Certified Course seats are full' });
+        if (currentCount >= 40) {
+          return res.status(400).json({ message: 'AOA Certified Course seats are full' });
         }
       }
 
       const bookingPhase = getBookingPhase();
-      const pricing = calculatePrice(
-        req.user.role,
-        registrationType,
-        bookingPhase
-      );
+      const basePricing = calculatePrice(req.user.role, registrationType, bookingPhase);
 
-      if (!pricing || pricing.totalAmount <= 0) {
+      if (!basePricing || basePricing.totalWithoutGST <= 0) {
         return res.status(400).json({
           message: 'Pricing not available for this package in current phase',
         });
       }
 
-      const accompanyingCount =
-         parseInt(accompanyingPersons, 10) || 0;
-      const accompanyingTotal = accompanyingCount * 7000;
-      const grandTotal = pricing.totalAmount + accompanyingTotal;
+      const accompanyingCount = parseInt(accompanyingPersons, 10) || 0;
+      const accompanyingBase = accompanyingCount * 7000;
+      const aoaBase = addAoaCourse === 'true' ? 5000 : 0;
 
-      const registrationData = {
-        userId,
+      const totalBase = basePricing.totalWithoutGST + accompanyingBase + aoaBase;
+      const totalGST = Math.round(totalBase * 0.18);
+      const subtotalWithGST = totalBase + totalGST;
+      const processingFee = Math.round(subtotalWithGST * 0.0165);
+      const finalAmount = subtotalWithGST + processingFee;
+
+      const updateData = {
         registrationType,
-        selectedWorkshop,
+        selectedWorkshop: isWorkshopType ? selectedWorkshop : null,
         accompanyingPersons: accompanyingCount,
-        accompanyingTotal,
+        accompanyingBase,
+        accompanyingGST: Math.round(accompanyingBase * 0.18),
+        addAoaCourse: addAoaCourse === 'true',
+        aoaCourseBase: aoaBase,
+        aoaCourseGST: aoaBase > 0 ? 900 : 0,
         bookingPhase,
-        ...pricing,
-        totalAmount: grandTotal,
+        packageBase: basePricing.totalWithoutGST,
+        packageGST: basePricing.gst,
+        totalBase,
+        totalGST,
+        subtotalWithGST,
+        processingFee,
+        totalAmount: finalAmount,
         lifetimeMembershipId:
-          registrationType === 'COMBO'
+          registrationType === 'COMBO' && !registration?.lifetimeMembershipId
             ? generateLifetimeMembershipId()
-            : undefined,
+            : registration?.lifetimeMembershipId,
       };
 
       
-      if (req.user.role === 'PGS' && req.files?.collegeLetter) {
-        const file = req.files.collegeLetter[0];
-        registrationData.collegeLetter = {
-          data: file.buffer,
-          contentType: file.mimetype,
-        };
+      if (req.user.role === 'PGS') {
+        if (!req.file && !registration?.collegeLetter) {
+          return res.status(400).json({ message: 'College letter is required for PGS & Fellows' });
+        }
+        if (req.file) {
+          updateData.collegeLetter = {
+            data: req.file.buffer,
+            contentType: req.file.mimetype,
+          };
+        }
       }
 
-      const registration = new Registration(registrationData);
-      await registration.save();
+      if (registration) {
+        
+        Object.assign(registration, updateData);
+        await registration.save();
+        res.json({
+          message: 'Registration updated successfully',
+          registration,
+        });
+      } else {
+        
+        registration = new Registration({
+          userId: req.user._id,
+          ...updateData,
+        });
+        await registration.save();
+        res.status(201).json({
+          message: 'Registration created successfully',
+          registration,
+        });
+      }
 
-      await registration.populate('userId', 'name email role');
+      await registration.populate('userId', 'name email role membershipId');
 
-      res.status(201).json({
-        message: 'Registration created successfully',
-        registration,
-      });
     } catch (error) {
       console.error('Registration error:', error);
       if (error.name === 'ValidationError') {
@@ -131,17 +154,16 @@ router.post(
           errors: Object.values(error.errors).map((e) => e.message),
         });
       }
-      res.status(500).json({ message: 'Server error during registration' });
+      res.status(500).json({ message: 'Server error' });
     }
   }
 );
 
+
 router.get('/my-registration', authenticateUser, async (req, res) => {
   try {
-    const registration = await Registration.findOne({ userId: req.user._id }).populate(
-      'userId',
-      'name email role membershipId'
-    );
+    const registration = await Registration.findOne({ userId: req.user._id })
+      .populate('userId', 'name email role membershipId');
 
     if (!registration) {
       return res.status(404).json({ message: 'No registration found' });
@@ -154,31 +176,27 @@ router.get('/my-registration', authenticateUser, async (req, res) => {
   }
 });
 
+
 router.get('/pricing', authenticateUser, async (req, res) => {
   try {
     const bookingPhase = getBookingPhase();
 
-    const conferenceOnly = calculatePrice(
-      req.user.role,
-      'CONFERENCE_ONLY',
-      bookingPhase
-    );
-    const workshopConference = calculatePrice(
-      req.user.role,
-      'WORKSHOP_CONFERENCE',
-      bookingPhase
-    );
+    const conferenceOnly = calculatePrice(req.user.role, 'CONFERENCE_ONLY', bookingPhase);
+    const workshopConference = calculatePrice(req.user.role, 'WORKSHOP_CONFERENCE', bookingPhase);
     const combo = calculatePrice(req.user.role, 'COMBO', bookingPhase);
-    const aoaCourse = calculatePrice(
-      req.user.role,
-      'AOA_CERTIFIED_COURSE',
-      bookingPhase
-    );
 
-    
+    const aoaCourseStandalone =
+      req.user.role === 'AOA' || req.user.role === 'NON_AOA'
+        ? calculatePrice(req.user.role, 'AOA_CERTIFIED_COURSE', bookingPhase)
+        : null;
+
     const aoaCourseCount = await Registration.countDocuments({
-      registrationType: 'AOA_CERTIFIED_COURSE',
+      $or: [
+        { registrationType: 'AOA_CERTIFIED_COURSE' },
+        { addAoaCourse: true },
+      ],
     });
+
     const aoaCourseFull = aoaCourseCount >= 40;
 
     res.json({
@@ -187,7 +205,17 @@ router.get('/pricing', authenticateUser, async (req, res) => {
         CONFERENCE_ONLY: conferenceOnly,
         WORKSHOP_CONFERENCE: workshopConference,
         COMBO: combo,
-        AOA_CERTIFIED_COURSE: aoaCourse,
+        AOA_CERTIFIED_COURSE: aoaCourseStandalone,
+      },
+      addOns: {
+        aoaCourseAddOn:
+          req.user.role === 'AOA' || req.user.role === 'NON_AOA'
+            ? {
+                priceWithoutGST: 5000,
+                gst: 900,
+                totalAmount: 5900,
+              }
+            : null,
       },
       meta: {
         aoaCourseCount,
