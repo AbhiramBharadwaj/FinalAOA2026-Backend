@@ -2,6 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
+import { sendRegistrationEmail } from '../utils/email.js';
 
 const router = express.Router();
 
@@ -99,6 +100,11 @@ router.post('/register', async (req, res) => {
       }
     });
 
+    try {
+      await sendRegistrationEmail(user);
+    } catch (emailError) {
+      console.error('Registration email error:', emailError?.message || emailError);
+    }
   } catch (error) {
     console.error('Registration error:', error);
     if (error.code === 11000) {

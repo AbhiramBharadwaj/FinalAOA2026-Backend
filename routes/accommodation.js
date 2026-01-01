@@ -12,7 +12,6 @@ router.get('/my-bookings', authenticateUser, async (req, res) => {
       .populate('accommodationId')
       .sort({ createdAt: -1 });
 
-    console.log("User bookings fetched successfully:", bookings.length, "bookings found");
     res.json(bookings);
   } catch (error) {
     console.error('Get my-bookings error:', error);

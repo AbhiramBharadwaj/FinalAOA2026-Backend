@@ -235,7 +235,10 @@ router.get('/registrations', authenticateAdmin, async (req, res) => {
     if (phase) filter.bookingPhase = phase;
 
     const registrations = await Registration.find(filter)
-      .populate('userId', 'name email phone role membershipId')
+      .populate(
+        'userId',
+        'name email phone role membershipId gender country state city address pincode instituteHospital designation medicalCouncilName medicalCouncilNumber'
+      )
       .sort({ createdAt: -1 });
 
     let filteredRegistrations = registrations;
@@ -246,6 +249,34 @@ router.get('/registrations', authenticateAdmin, async (req, res) => {
     res.json(filteredRegistrations);
   } catch (error) {
     console.error('Get registrations error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.delete('/registrations/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const registration = await Registration.findById(req.params.id);
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found' });
+    }
+
+    const [paymentResult, attendanceResult] = await Promise.all([
+      Payment.deleteMany({ registrationId: registration._id }),
+      Attendance.deleteMany({ registrationId: registration._id }),
+    ]);
+
+    await Registration.deleteOne({ _id: registration._id });
+
+    res.json({
+      message: 'Registration deleted successfully',
+      deleted: {
+        registrationId: registration._id,
+        payments: paymentResult.deletedCount,
+        attendance: attendanceResult.deletedCount,
+      },
+    });
+  } catch (error) {
+    console.error('Delete registration error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -281,7 +312,10 @@ router.get('/registrations', authenticateAdmin, async (req, res) => {
     if (phase) filter.bookingPhase = phase;
 
     const registrations = await Registration.find(filter)
-      .populate('userId', 'name email phone role membershipId')
+      .populate(
+        'userId',
+        'name email phone role membershipId gender country state city address pincode instituteHospital designation medicalCouncilName medicalCouncilNumber'
+      )
       .sort({ createdAt: -1 });
 
     
@@ -315,6 +349,119 @@ router.get('/payments', authenticateAdmin, async (req, res) => {
     res.json(payments);
   } catch (error) {
     console.error('Get payments error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.get('/users', authenticateAdmin, async (req, res) => {
+  try {
+    const users = await User.find({})
+      .select('-password')
+      .sort({ createdAt: -1 });
+    res.json(users);
+  } catch (error) {
+    console.error('Get users error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.delete('/users/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    const registrations = await Registration.find({ userId: user._id }, '_id');
+    const registrationIds = registrations.map((r) => r._id);
+    const accommodationBookings = await AccommodationBooking.find(
+      { userId: user._id },
+      '_id'
+    );
+    const accommodationBookingIds = accommodationBookings.map((b) => b._id);
+
+    const [paymentResult, attendanceResult, registrationResult, accommodationResult] =
+      await Promise.all([
+        Payment.deleteMany({
+          $or: [
+            { registrationId: { $in: registrationIds } },
+            { accommodationBookingId: { $in: accommodationBookingIds } },
+            { userId: user._id },
+          ],
+        }),
+        Attendance.deleteMany({ registrationId: { $in: registrationIds } }),
+        Registration.deleteMany({ userId: user._id }),
+        AccommodationBooking.deleteMany({ userId: user._id }),
+      ]);
+
+    await User.deleteOne({ _id: user._id });
+
+    res.json({
+      message: 'User deleted successfully',
+      deleted: {
+        userId: user._id,
+        registrations: registrationResult.deletedCount || 0,
+        payments: paymentResult.deletedCount || 0,
+        attendance: attendanceResult.deletedCount || 0,
+        accommodationBookings: accommodationResult.deletedCount || 0,
+      },
+    });
+  } catch (error) {
+    console.error('Delete user error:', error);
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.post('/users/bulk-delete', authenticateAdmin, async (req, res) => {
+  try {
+    const { ids } = req.body;
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({ message: 'User IDs required' });
+    }
+
+    const users = await User.find({ _id: { $in: ids } }, '_id');
+    const userIds = users.map((u) => u._id);
+
+    const registrations = await Registration.find({ userId: { $in: userIds } }, '_id');
+    const registrationIds = registrations.map((r) => r._id);
+    const accommodationBookings = await AccommodationBooking.find(
+      { userId: { $in: userIds } },
+      '_id'
+    );
+    const accommodationBookingIds = accommodationBookings.map((b) => b._id);
+
+    const [
+      paymentResult,
+      attendanceResult,
+      registrationResult,
+      accommodationResult,
+      userResult,
+    ] = await Promise.all([
+      Payment.deleteMany({
+        $or: [
+          { registrationId: { $in: registrationIds } },
+          { accommodationBookingId: { $in: accommodationBookingIds } },
+          { userId: { $in: userIds } },
+        ],
+      }),
+      Attendance.deleteMany({ registrationId: { $in: registrationIds } }),
+      Registration.deleteMany({ userId: { $in: userIds } }),
+      AccommodationBooking.deleteMany({ userId: { $in: userIds } }),
+      User.deleteMany({ _id: { $in: userIds } }),
+    ]);
+
+    res.json({
+      message: 'Users deleted successfully',
+      deleted: {
+        users: userResult.deletedCount || 0,
+        registrations: registrationResult.deletedCount || 0,
+        payments: paymentResult.deletedCount || 0,
+        attendance: attendanceResult.deletedCount || 0,
+        accommodationBookings: accommodationResult.deletedCount || 0,
+      },
+    });
+  } catch (error) {
+    console.error('Bulk delete users error:', error);
     res.status(500).json({ message: 'Server error' });
   }
 });

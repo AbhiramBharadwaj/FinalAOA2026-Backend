@@ -4,7 +4,15 @@ import crypto from 'crypto';
 import Registration from '../models/Registration.js';
 import AccommodationBooking from '../models/AccommodationBooking.js';
 import Payment from '../models/Payment.js';
+import Attendance from '../models/Attendance.js';
+import User from '../models/User.js';
+import QRCode from 'qrcode';
 import { authenticateUser } from '../middleware/auth.js';
+import { sendPaymentSuccessEmail } from '../utils/email.js';
+import {
+  buildRegistrationInvoicePdf,
+  buildAccommodationInvoicePdf,
+} from '../utils/invoice.js';
 
 const router = express.Router();
 
@@ -162,6 +170,88 @@ router.post('/verify', authenticateUser, async (req, res) => {
         bookingStatus: 'CONFIRMED',
         razorpayPaymentId: razorpay_payment_id
       });
+    }
+
+    try {
+      if (payment.paymentType === 'REGISTRATION') {
+        const registration = await Registration.findById(payment.registrationId)
+          .populate('userId', 'name email phone role')
+          .lean();
+        if (registration?.userId?.email) {
+          let attendance = await Attendance.findOne({ registrationId: registration._id });
+          if (!attendance) {
+            attendance = new Attendance({
+              registrationId: registration._id,
+              qrCodeData: registration.registrationNumber,
+            });
+            await attendance.save();
+          }
+
+          const qrBuffer = await QRCode.toBuffer(attendance.qrCodeData, {
+            width: 512,
+            margin: 1,
+            color: { dark: '#005aa9', light: '#ffffff' },
+          });
+          const invoiceBuffer = buildRegistrationInvoicePdf(
+            registration,
+            registration.userId
+          );
+
+          await sendPaymentSuccessEmail({
+            user: registration.userId,
+            subject: `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
+            summaryLines: [
+              `Registration No: ${registration.registrationNumber || 'N/A'}`,
+              `Package: ${registration.registrationType || 'N/A'}`,
+              `Amount Paid: INR ${Number(registration.totalAmount || 0).toLocaleString('en-IN')}`,
+              'Payment Status: PAID',
+            ],
+            qrCid: 'qr-ticket',
+            attachments: [
+              {
+                filename: `AOA_Ticket_${registration.registrationNumber}.png`,
+                content: qrBuffer,
+                contentType: 'image/png',
+                cid: 'qr-ticket',
+              },
+              {
+                filename: `AOA_Invoice_${registration.registrationNumber}.pdf`,
+                content: invoiceBuffer,
+                contentType: 'application/pdf',
+              },
+            ],
+          });
+        }
+      } else if (payment.paymentType === 'ACCOMMODATION') {
+        const booking = await AccommodationBooking.findById(
+          payment.accommodationBookingId
+        )
+          .populate('accommodationId', 'name location')
+          .lean();
+        const user = await User.findById(payment.userId).lean();
+        if (booking && user?.email) {
+          const invoiceBuffer = buildAccommodationInvoicePdf(booking, user);
+          await sendPaymentSuccessEmail({
+            user,
+            subject: `AOACON 2026 Payment Successful - ${booking.bookingNumber || 'Booking'}`,
+            summaryLines: [
+              `Booking No: ${booking.bookingNumber || 'N/A'}`,
+              `Hotel: ${booking.accommodationId?.name || 'N/A'}`,
+              `Amount Paid: INR ${Number(booking.totalAmount || 0).toLocaleString('en-IN')}`,
+              'Payment Status: PAID',
+            ],
+            attachments: [
+              {
+                filename: `AOA_Invoice_${booking.bookingNumber || 'Booking'}.pdf`,
+                content: invoiceBuffer,
+                contentType: 'application/pdf',
+              },
+            ],
+          });
+        }
+      }
+    } catch (emailError) {
+      console.error('Payment email error:', emailError?.message || emailError);
     }
 
     res.json({ message: 'Payment verified successfully' });

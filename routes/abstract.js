@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import Abstract from '../models/Abstract.js';
 import { authenticateUser, authenticateAdmin } from '../middleware/auth.js';
+import { sendAbstractSubmittedEmail, sendAbstractReviewEmail } from '../utils/email.js';
 
 const router = express.Router();
 
@@ -62,6 +63,12 @@ router.post('/submit', authenticateUser, upload.single('abstractFile'), async (r
       message: 'Abstract submitted successfully',
       abstract
     });
+
+    try {
+      await sendAbstractSubmittedEmail(abstract);
+    } catch (emailError) {
+      console.error('Abstract email error:', emailError?.message || emailError);
+    }
   } catch (error) {
     console.error('Abstract submission error:', error);
     res.status(500).json({ message: 'Server error during abstract submission' });
@@ -129,6 +136,14 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
       message: 'Abstract reviewed successfully',
       abstract
     });
+
+    try {
+      if (abstract.status === 'APPROVED' || abstract.status === 'REJECTED') {
+        await sendAbstractReviewEmail(abstract);
+      }
+    } catch (emailError) {
+      console.error('Abstract review email error:', emailError?.message || emailError);
+    }
   } catch (error) {
     console.error('Abstract review error:', error);
     res.status(500).json({ message: 'Server error during abstract review' });
