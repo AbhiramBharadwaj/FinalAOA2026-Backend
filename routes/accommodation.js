@@ -1,7 +1,7 @@
 import express from 'express';
 import Accommodation from '../models/Accommodation.js';
 import AccommodationBooking from '../models/AccommodationBooking.js';
-import { authenticateUser } from '../middleware/auth.js';
+import { authenticateUser, requireProfileComplete } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -45,7 +45,7 @@ router.get('/:id', async (req, res) => {
 });
 
 
-router.post('/book', authenticateUser, async (req, res) => {
+router.post('/book', authenticateUser, requireProfileComplete, async (req, res) => {
   try {
     const {
       accommodationId,

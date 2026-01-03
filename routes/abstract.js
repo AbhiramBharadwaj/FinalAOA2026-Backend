@@ -2,7 +2,7 @@ import express from 'express';
 import multer from 'multer';
 import path from 'path';
 import Abstract from '../models/Abstract.js';
-import { authenticateUser, authenticateAdmin } from '../middleware/auth.js';
+import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
 import { sendAbstractSubmittedEmail, sendAbstractReviewEmail } from '../utils/email.js';
 
 const router = express.Router();
@@ -33,7 +33,7 @@ const upload = multer({
 });
 
 
-router.post('/submit', authenticateUser, upload.single('abstractFile'), async (req, res) => {
+router.post('/submit', authenticateUser, requireProfileComplete, upload.single('abstractFile'), async (req, res) => {
   try {
     const { title, authors, category } = req.body;
 

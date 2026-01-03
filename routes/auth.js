@@ -3,11 +3,42 @@ import jwt from 'jsonwebtoken';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import { sendRegistrationEmail } from '../utils/email.js';
+import { authenticateUser } from '../middleware/auth.js';
 
 const router = express.Router();
 
 
 const JWT_SECRET = "dndjjdhjdhjd"; 
+
+const profileFields = [
+  'gender',
+  'country',
+  'state',
+  'city',
+  'address',
+  'pincode',
+  'instituteHospital',
+  'designation',
+  'medicalCouncilName',
+  'medicalCouncilNumber'
+];
+
+const hasValue = (value) => {
+  if (value === undefined || value === null) return false;
+  if (typeof value === 'string') return value.trim() !== '';
+  return true;
+};
+
+const normalizeString = (value) => (typeof value === 'string' ? value.trim() : value);
+
+const isProfileComplete = (userData) => {
+  for (const field of profileFields) {
+    if (!hasValue(userData[field])) return false;
+  }
+  if (userData.role === 'AOA' && !hasValue(userData.membershipId)) return false;
+  if (userData.role === 'PGS' && !hasValue(userData.collegeLetter)) return false;
+  return true;
+};
 
 router.post('/register', async (req, res) => {
   try {
@@ -20,9 +51,7 @@ router.post('/register', async (req, res) => {
 
     
     const requiredFields = [
-      'name', 'email', 'phone', 'password', 'role', 'gender',
-      'country', 'state', 'city', 'address', 'pincode',
-      'instituteHospital', 'designation', 'medicalCouncilName'
+      'name', 'email', 'phone', 'password', 'role'
     ];
 
     for (const field of requiredFields) {
@@ -47,35 +76,30 @@ router.post('/register', async (req, res) => {
       return res.status(400).json({ message: 'Invalid role' });
     }
 
-    if (role === 'AOA' && !membershipId?.trim()) {
-      return res.status(400).json({ message: 'Membership ID required for AOA' });
-    }
-
-    if (role === 'PGS' && !collegeLetter?.trim()) {
-      return res.status(400).json({ message: 'College letter required for PGS' });
-    }
-
     
-    const user = new User({
+    const userData = {
       name: name.trim(),
       email: email.toLowerCase().trim(),
       phone: phone.trim(),
-      password, 
-      role,
-      gender,
-      country: country.trim(),
-      state: state.trim(),
-      city: city.trim(),
-      address: address.trim(),
-      pincode: pincode.trim(),
-      instituteHospital: instituteHospital.trim(),
-      designation: designation.trim(),
-      medicalCouncilName: medicalCouncilName.trim(),
-      medicalCouncilNumber: medicalCouncilNumber?.trim() || '',
-      membershipId: role === 'AOA' ? membershipId.trim() : undefined,
-      collegeLetter: role === 'PGS' ? collegeLetter.trim() : undefined,
-      isProfileComplete: true
-    });
+      password,
+      role
+    };
+
+    if (hasValue(gender)) userData.gender = normalizeString(gender);
+    if (hasValue(country)) userData.country = normalizeString(country);
+    if (hasValue(state)) userData.state = normalizeString(state);
+    if (hasValue(city)) userData.city = normalizeString(city);
+    if (hasValue(address)) userData.address = normalizeString(address);
+    if (hasValue(pincode)) userData.pincode = normalizeString(pincode);
+    if (hasValue(instituteHospital)) userData.instituteHospital = normalizeString(instituteHospital);
+    if (hasValue(designation)) userData.designation = normalizeString(designation);
+    if (hasValue(medicalCouncilName)) userData.medicalCouncilName = normalizeString(medicalCouncilName);
+    if (hasValue(medicalCouncilNumber)) userData.medicalCouncilNumber = normalizeString(medicalCouncilNumber);
+    if (role === 'AOA' && hasValue(membershipId)) userData.membershipId = normalizeString(membershipId);
+    if (role === 'PGS' && hasValue(collegeLetter)) userData.collegeLetter = normalizeString(collegeLetter);
+    userData.isProfileComplete = isProfileComplete(userData);
+
+    const user = new User(userData);
 
     await user.save();
 
@@ -96,7 +120,7 @@ router.post('/register', async (req, res) => {
         email: user.email,
         phone: user.phone,
         role: user.role,
-        isProfileComplete: true
+        isProfileComplete: user.isProfileComplete
       }
     });
 
@@ -148,13 +172,99 @@ router.post('/login', async (req, res) => {
         id: user._id,
         name: user.name,
         email: user.email,
-        role: user.role
+        phone: user.phone,
+        role: user.role,
+        isProfileComplete: user.isProfileComplete
       }
     });
 
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.get('/me', authenticateUser, async (req, res) => {
+  if (req.isAdmin) {
+    return res.status(403).json({ message: 'Admins do not have a user profile' });
+  }
+
+  return res.json({ user: req.user });
+});
+
+router.put('/profile', authenticateUser, async (req, res) => {
+  try {
+    if (req.isAdmin) {
+      return res.status(403).json({ message: 'Admins cannot update user profiles' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const requestedEmail = Object.prototype.hasOwnProperty.call(req.body, 'email')
+      ? normalizeString(req.body.email)
+      : undefined;
+    const requestedPhone = Object.prototype.hasOwnProperty.call(req.body, 'phone')
+      ? normalizeString(req.body.phone)
+      : undefined;
+
+    if (requestedEmail && requestedEmail.toLowerCase().trim() !== user.email) {
+      return res.status(400).json({ message: 'Email cannot be changed after registration' });
+    }
+
+    if (requestedPhone && requestedPhone.trim() !== user.phone) {
+      return res.status(400).json({ message: 'Phone cannot be changed after registration' });
+    }
+
+    const updates = {};
+    const updatableFields = [
+      'name',
+      'gender',
+      'country',
+      'state',
+      'city',
+      'address',
+      'pincode',
+      'instituteHospital',
+      'designation',
+      'medicalCouncilName',
+      'medicalCouncilNumber',
+      'membershipId',
+      'collegeLetter'
+    ];
+
+    for (const field of updatableFields) {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        updates[field] = normalizeString(req.body[field]);
+        if (updates[field] === '') updates[field] = undefined;
+      }
+    }
+
+    if (updates.membershipId && user.role !== 'AOA') {
+      updates.membershipId = undefined;
+    }
+
+    if (updates.collegeLetter && user.role !== 'PGS') {
+      updates.collegeLetter = undefined;
+    }
+
+    const nextUser = { ...user.toObject(), ...updates };
+    if (!isProfileComplete(nextUser)) {
+      return res.status(400).json({ message: 'Please complete all required profile fields before continuing' });
+    }
+
+    Object.assign(user, updates);
+    user.isProfileComplete = isProfileComplete(user);
+
+    await user.save();
+
+    return res.json({ user });
+  } catch (error) {
+    console.error('Profile update error:', error);
+    if (error.code === 11000) {
+      return res.status(400).json({ message: 'Duplicate value not allowed' });
+    }
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 

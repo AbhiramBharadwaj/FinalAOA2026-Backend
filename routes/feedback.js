@@ -1,11 +1,11 @@
 import express from 'express';
 import Feedback from '../models/Feedback.js';
-import { authenticateUser, authenticateAdmin } from '../middleware/auth.js';
+import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
 
 const router = express.Router();
 
 
-router.post('/submit', authenticateUser, async (req, res) => {
+router.post('/submit', authenticateUser, requireProfileComplete, async (req, res) => {
   try {
     
     const now = new Date();

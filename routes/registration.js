@@ -1,6 +1,6 @@
 import express from 'express';
 import Registration from '../models/Registration.js';
-import { authenticateUser } from '../middleware/auth.js';
+import { authenticateUser, requireProfileComplete } from '../middleware/auth.js';
 import { getBookingPhase, calculatePrice } from '../utils/pricing.js';
 import { generateLifetimeMembershipId } from '../utils/membershipGenerator.js';
 import multer from 'multer';
@@ -15,6 +15,7 @@ const upload = multer({ storage });
 router.post(
   '/',
   authenticateUser,
+  requireProfileComplete,
   upload.single('collegeLetter'),
   async (req, res) => {
     try {

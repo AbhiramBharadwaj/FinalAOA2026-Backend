@@ -62,3 +62,15 @@ export const authenticateAdmin = async (req, res, next) => {
     return res.status(401).json({ message: 'Invalid admin token' });
   }
 };
+
+export const requireProfileComplete = (req, res, next) => {
+  if (req.isAdmin) {
+    return res.status(403).json({ message: 'Admins do not have a user profile' });
+  }
+
+  if (!req.user?.isProfileComplete) {
+    return res.status(403).json({ message: 'Please complete your profile before continuing' });
+  }
+
+  return next();
+};

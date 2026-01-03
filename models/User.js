@@ -9,8 +9,7 @@ const userSchema = new mongoose.Schema({
   },
   gender: {
     type: String,
-    enum: ['Male', 'Female', 'Other'],
-    required: true
+    enum: ['Male', 'Female', 'Other']
   },
   email: {
     type: String,
@@ -39,45 +38,36 @@ const userSchema = new mongoose.Schema({
   
   country: {
     type: String,
-    required: true,
-    default: 'India',
     trim: true
   },
   state: {
     type: String,
-    required: true,
     trim: true
   },
   city: {
     type: String,
-    required: true,
     trim: true
   },
   address: { 
     type: String,
-    required: true,
     trim: true
   },
   pincode: { 
     type: String,
-    required: true,
     trim: true,
     match: [/^\d{4,10}$/, 'Please enter valid pincode/zip (4-10 digits)']
   },
   
   instituteHospital: {
     type: String,
-    required: true,
     trim: true
   },
   designation: {
     type: String,
-    required: true,
     trim: true
   },
   medicalCouncilName: {
     type: String,
-    required: true,
     trim: true
   },
   medicalCouncilNumber: {

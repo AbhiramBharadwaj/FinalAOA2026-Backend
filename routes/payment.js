@@ -7,7 +7,7 @@ import Payment from '../models/Payment.js';
 import Attendance from '../models/Attendance.js';
 import User from '../models/User.js';
 import QRCode from 'qrcode';
-import { authenticateUser } from '../middleware/auth.js';
+import { authenticateUser, requireProfileComplete } from '../middleware/auth.js';
 import { sendPaymentSuccessEmail } from '../utils/email.js';
 import {
   buildRegistrationInvoicePdf,
@@ -23,7 +23,7 @@ const razorpay = new Razorpay({
 });
 
 
-router.post('/create-order/registration', authenticateUser, async (req, res) => {
+router.post('/create-order/registration', authenticateUser, requireProfileComplete, async (req, res) => {
   try {
     const registration = await Registration.findOne({ userId: req.user._id });
     
@@ -74,7 +74,7 @@ router.post('/create-order/registration', authenticateUser, async (req, res) => 
 });
 
 
-router.post('/create-order/accommodation', authenticateUser, async (req, res) => {
+router.post('/create-order/accommodation', authenticateUser, requireProfileComplete, async (req, res) => {
   try {
     const { bookingId } = req.body;
     
