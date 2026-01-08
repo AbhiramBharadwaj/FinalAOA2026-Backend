@@ -18,44 +18,27 @@ export const getBookingPhase = () => {
 };
 
 /**
- * Calculate base price (excluding GST) for a registration type
+ * Calculate registration totals using base conference + add-ons.
  */
-export const calculatePrice = (userRole, registrationType, bookingPhase) => {
-  let basePrice = 0;
-  let workshopPrice = 0;
-  let aoaCoursePrice = 0;
-  let totalWithoutGST = 0;
-  let gst = 0;
-  let totalAmount = 0;
+export const calculateRegistrationTotals = (userRole, bookingPhase, options = {}) => {
+  const normalizedRole = normalizeRole(userRole);
+  const { addWorkshop = false, addAoaCourse = false, addLifeMembership = false } = options;
 
-  if (registrationType === 'CONFERENCE_ONLY') {
-    basePrice = getConferencePrice(userRole, bookingPhase);
-    totalWithoutGST = basePrice;
-  }
+  const basePrice = getConferencePrice(normalizedRole, bookingPhase);
+  const workshopAddOn = addWorkshop ? getWorkshopAddOnPrice(normalizedRole, bookingPhase) : 0;
+  const aoaCourseAddOn = addAoaCourse ? getAOACourseAddOnPrice(normalizedRole) : 0;
+  const lifeMembershipAddOn = addLifeMembership ? getLifeMembershipAddOnPrice(normalizedRole, bookingPhase) : 0;
 
-  if (registrationType === 'WORKSHOP_CONFERENCE') {
-    workshopPrice = getWorkshopPrice(userRole, bookingPhase);
-    totalWithoutGST = workshopPrice;
-  }
-
-  if (registrationType === 'COMBO') {
-    totalWithoutGST = getComboPrice(userRole, bookingPhase);
-  }
-
-  if (registrationType === 'AOA_CERTIFIED_COURSE') {
-    aoaCoursePrice = getAOACoursePrice(userRole);
-    totalWithoutGST = aoaCoursePrice;
-  }
-
-  
-  gst = Math.round(totalWithoutGST * 0.18);
-  totalAmount = totalWithoutGST + gst;
+  const packageBase = basePrice + workshopAddOn + aoaCourseAddOn + lifeMembershipAddOn;
+  const gst = Math.round(packageBase * 0.18);
+  const totalAmount = packageBase + gst;
 
   return {
     basePrice,
-    workshopPrice,
-    aoaCoursePrice,
-    totalWithoutGST,
+    workshopAddOn,
+    aoaCourseAddOn,
+    lifeMembershipAddOn,
+    packageBase,
     gst,
     totalAmount,
     bookingPhase,
@@ -64,6 +47,7 @@ export const calculatePrice = (userRole, registrationType, bookingPhase) => {
 
 
 const getConferencePrice = (userRole, bookingPhase) => {
+  const role = normalizeRole(userRole);
   const prices = {
     AOA: {
       EARLY_BIRD: 8000,
@@ -82,11 +66,12 @@ const getConferencePrice = (userRole, bookingPhase) => {
     },
   };
 
-  return prices[userRole]?.[bookingPhase] || 0;
+  return prices[role]?.[bookingPhase] || 0;
 };
 
 
-const getWorkshopPrice = (userRole, bookingPhase) => {
+const getWorkshopTotalPrice = (userRole, bookingPhase) => {
+  const role = normalizeRole(userRole);
   const prices = {
     AOA: {
       EARLY_BIRD: 10000,
@@ -105,11 +90,12 @@ const getWorkshopPrice = (userRole, bookingPhase) => {
     },
   };
 
-  return prices[userRole]?.[bookingPhase] || 0;
+  return prices[role]?.[bookingPhase] || 0;
 };
 
 
 const getComboPrice = (userRole, bookingPhase) => {
+  const role = normalizeRole(userRole);
   const prices = {
     AOA: {
       EARLY_BIRD: 0,
@@ -117,24 +103,64 @@ const getComboPrice = (userRole, bookingPhase) => {
       SPOT: 0,
     },
     NON_AOA: {
-      EARLY_BIRD: 16000,
-      REGULAR: 18000,
+      EARLY_BIRD: 14000,
+      REGULAR: 16000,
       SPOT: 0,
     },
     PGS: {
-      EARLY_BIRD: 12000,
-      REGULAR: 14000,
+      EARLY_BIRD: 0,
+      REGULAR: 0,
       SPOT: 0,
     },
   };
 
-  return prices[userRole]?.[bookingPhase] || 0;
+  return prices[role]?.[bookingPhase] || 0;
 };
 
 
-const getAOACoursePrice = (userRole) => {
-  return (userRole === 'AOA' || userRole === 'NON_AOA') ? 5000 : 0;
+const getWorkshopAddOnPrice = (userRole, bookingPhase) => {
+  const workshopTotal = getWorkshopTotalPrice(userRole, bookingPhase);
+  const baseTotal = getConferencePrice(userRole, bookingPhase);
+  return workshopTotal > 0 ? Math.max(0, workshopTotal - baseTotal) : 0;
 };
+
+const getLifeMembershipAddOnPrice = (userRole, bookingPhase) => {
+  const comboTotal = getComboPrice(userRole, bookingPhase);
+  const baseTotal = getConferencePrice(userRole, bookingPhase);
+  return comboTotal > 0 ? Math.max(0, comboTotal - baseTotal) : 0;
+};
+
+const getAOACourseAddOnPrice = (userRole) => {
+  const role = normalizeRole(userRole);
+  if (role === 'AOA') return 5000;
+  if (role === 'NON_AOA') return 2000;
+  return 0;
+};
+
+const normalizeRole = (role) => {
+  if (!role) return role;
+  const trimmed = String(role).trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === 'aoa member') return 'AOA';
+  if (lower === 'non-aoa member' || lower === 'non aoa member') return 'NON_AOA';
+  if (lower === 'pgs & fellows' || lower === 'pgs and fellows') return 'PGS';
+  if (lower === 'aoa') return 'AOA';
+  if (lower === 'non_aoa' || lower === 'non-aoa') return 'NON_AOA';
+  if (lower === 'pgs') return 'PGS';
+  return trimmed;
+};
+
+export const getAddOnPricing = (userRole, bookingPhase) => ({
+  workshop: {
+    priceWithoutGST: getWorkshopAddOnPrice(userRole, bookingPhase),
+  },
+  aoaCourse: {
+    priceWithoutGST: bookingPhase === 'SPOT' ? 0 : getAOACourseAddOnPrice(userRole),
+  },
+  lifeMembership: {
+    priceWithoutGST: getLifeMembershipAddOnPrice(userRole, bookingPhase),
+  },
+});
 
 
 export const roleMap = {
@@ -146,6 +172,6 @@ export const roleMap = {
 export const registrationTypeDisplay = {
   CONFERENCE_ONLY: 'Conference Only',
   WORKSHOP_CONFERENCE: 'Workshop + Conference',
-  COMBO: 'Combo (Conference + Workshop + Lifetime Membership)',
-  AOA_CERTIFIED_COURSE: 'AOA Certified Course Only',
+  COMBO: 'Conference + Life Membership',
+  AOA_CERTIFIED_COURSE: 'AOA Certified Course',
 };

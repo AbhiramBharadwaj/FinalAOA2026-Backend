@@ -12,6 +12,7 @@ const JWT_SECRET = "dndjjdhjdhjd";
 
 const profileFields = [
   'gender',
+  'mealPreference',
   'country',
   'state',
   'city',
@@ -45,7 +46,7 @@ router.post('/register', async (req, res) => {
     const {
       name, email, phone, password, role, 
       membershipId, collegeLetter,
-      gender, country, state, city, address, pincode,
+      gender, mealPreference, country, state, city, address, pincode,
       instituteHospital, designation, medicalCouncilName, medicalCouncilNumber
     } = req.body;
 
@@ -86,6 +87,7 @@ router.post('/register', async (req, res) => {
     };
 
     if (hasValue(gender)) userData.gender = normalizeString(gender);
+    if (hasValue(mealPreference)) userData.mealPreference = normalizeString(mealPreference);
     if (hasValue(country)) userData.country = normalizeString(country);
     if (hasValue(state)) userData.state = normalizeString(state);
     if (hasValue(city)) userData.city = normalizeString(city);
@@ -220,6 +222,7 @@ router.put('/profile', authenticateUser, async (req, res) => {
     const updatableFields = [
       'name',
       'gender',
+      'mealPreference',
       'country',
       'state',
       'city',

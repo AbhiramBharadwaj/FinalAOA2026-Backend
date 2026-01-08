@@ -16,6 +16,14 @@ import {
 
 const router = express.Router();
 
+const buildRegistrationLabel = (registration) => {
+  const labels = [];
+  if (registration?.addWorkshop || registration?.selectedWorkshop) labels.push('Workshop');
+  if (registration?.addAoaCourse) labels.push('AOA Certified Course');
+  if (registration?.addLifeMembership || registration?.lifetimeMembershipId) labels.push('AOA Life Membership');
+  return labels.length ? `Conference + ${labels.join(' + ')}` : 'Conference Only';
+};
+
 
 const razorpay = new Razorpay({
   key_id: "rzp_test_RsGQ0EyONIWnyi",
@@ -31,13 +39,30 @@ router.post('/create-order/registration', authenticateUser, requireProfileComple
       return res.status(404).json({ message: 'Registration not found' });
     }
 
-    if (registration.paymentStatus === 'PAID') {
-      return res.status(400).json({ message: 'Registration already paid' });
+    const paidAggregate = await Payment.aggregate([
+      {
+        $match: {
+          registrationId: registration._id,
+          status: 'SUCCESS',
+        },
+      },
+      {
+        $group: { _id: null, total: { $sum: '$amount' } },
+      },
+    ]);
+    const totalPaid = paidAggregate[0]?.total || 0;
+    registration.totalPaid = totalPaid;
+    registration.paymentStatus = totalPaid >= registration.totalAmount ? 'PAID' : 'PENDING';
+    await registration.save();
+
+    const balanceDue = Math.max(0, registration.totalAmount - totalPaid);
+
+    if (balanceDue <= 0) {
+      return res.status(400).json({ message: 'Registration already fully paid' });
     }
 
-    
     const order = await razorpay.orders.create({
-      amount: registration.totalAmount * 100, 
+      amount: balanceDue * 100, 
       currency: 'INR',
       receipt: `reg_${registration._id}`,
       notes: {
@@ -55,7 +80,7 @@ router.post('/create-order/registration', authenticateUser, requireProfileComple
     const payment = new Payment({
       userId: req.user._id,
       registrationId: registration._id,
-      amount: registration.totalAmount,
+      amount: balanceDue,
       paymentType: 'REGISTRATION',
       razorpayOrderId: order.id
     });
@@ -63,7 +88,7 @@ router.post('/create-order/registration', authenticateUser, requireProfileComple
 
     res.json({
       orderId: order.id,
-      amount: registration.totalAmount,
+      amount: balanceDue,
       currency: 'INR',
       keyId: "rzp_test_RsGQ0EyONIWnyi"
     });
@@ -160,10 +185,27 @@ router.post('/verify', authenticateUser, async (req, res) => {
 
     
     if (payment.paymentType === 'REGISTRATION') {
-      await Registration.findByIdAndUpdate(payment.registrationId, {
-        paymentStatus: 'PAID',
-        razorpayPaymentId: razorpay_payment_id
-      });
+      const paidAggregate = await Payment.aggregate([
+        {
+          $match: {
+            registrationId: payment.registrationId,
+            status: 'SUCCESS',
+          },
+        },
+        {
+          $group: { _id: null, total: { $sum: '$amount' } },
+        },
+      ]);
+      const totalPaid = paidAggregate[0]?.total || 0;
+      const registration = await Registration.findById(payment.registrationId);
+      if (registration) {
+        const paymentStatus = totalPaid >= registration.totalAmount ? 'PAID' : 'PENDING';
+        await Registration.findByIdAndUpdate(payment.registrationId, {
+          paymentStatus,
+          totalPaid,
+          razorpayPaymentId: razorpay_payment_id,
+        });
+      }
     } else if (payment.paymentType === 'ACCOMMODATION') {
       await AccommodationBooking.findByIdAndUpdate(payment.accommodationBookingId, {
         paymentStatus: 'PAID',
@@ -178,6 +220,8 @@ router.post('/verify', authenticateUser, async (req, res) => {
           .populate('userId', 'name email phone role')
           .lean();
         if (registration?.userId?.email) {
+          const currentPaymentStatus =
+            (registration.totalPaid || 0) >= (registration.totalAmount || 0) ? 'PAID' : 'PENDING';
           let attendance = await Attendance.findOne({ registrationId: registration._id });
           if (!attendance) {
             attendance = new Attendance({
@@ -202,9 +246,9 @@ router.post('/verify', authenticateUser, async (req, res) => {
             subject: `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
             summaryLines: [
               `Registration No: ${registration.registrationNumber || 'N/A'}`,
-              `Package: ${registration.registrationType || 'N/A'}`,
-              `Amount Paid: INR ${Number(registration.totalAmount || 0).toLocaleString('en-IN')}`,
-              'Payment Status: PAID',
+              `Package: ${buildRegistrationLabel(registration)}`,
+              `Amount Paid: INR ${Number(payment.amount || 0).toLocaleString('en-IN')}`,
+              `Payment Status: ${currentPaymentStatus}`,
             ],
             qrCid: 'qr-ticket',
             attachments: [

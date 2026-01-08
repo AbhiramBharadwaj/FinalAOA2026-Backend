@@ -30,15 +30,12 @@ const registrationSchema = new mongoose.Schema(
       default: null,
       validate: {
         validator: function (value) {
-          if (
-            this.registrationType === 'WORKSHOP_CONFERENCE' ||
-            this.registrationType === 'COMBO'
-          ) {
+          if (this.addWorkshop) {
             return value && value.trim() !== '';
           }
           return true; 
         },
-        message: 'Workshop selection is required for WORKSHOP_CONFERENCE or COMBO',
+        message: 'Workshop selection is required when adding a workshop',
       },
     },
     accompanyingPersons: {
@@ -56,7 +53,15 @@ const registrationSchema = new mongoose.Schema(
     },
 
     
+    addWorkshop: {
+      type: Boolean,
+      default: false,
+    },
     addAoaCourse: {
+      type: Boolean,
+      default: false,
+    },
+    addLifeMembership: {
       type: Boolean,
       default: false,
     },
@@ -65,6 +70,14 @@ const registrationSchema = new mongoose.Schema(
       default: 0,
     },
     aoaCourseGST: {
+      type: Number,
+      default: 0,
+    },
+    lifeMembershipBase: {
+      type: Number,
+      default: 0,
+    },
+    workshopAddOn: {
       type: Number,
       default: 0,
     },
@@ -105,6 +118,10 @@ const registrationSchema = new mongoose.Schema(
     totalAmount: {
       type: Number,
       required: true, 
+    },
+    totalPaid: {
+      type: Number,
+      default: 0,
     },
 
     

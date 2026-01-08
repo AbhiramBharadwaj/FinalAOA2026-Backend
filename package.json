@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node server.js",
     "dev": "nodemon server.js",
-    "seed": "node seedData.js"
+    "seed": "node seedData.js",
+    "migrate:user-roles": "node scripts/migrate-user-roles.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

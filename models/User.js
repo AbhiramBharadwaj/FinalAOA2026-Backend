@@ -11,6 +11,10 @@ const userSchema = new mongoose.Schema({
     type: String,
     enum: ['Male', 'Female', 'Other']
   },
+  mealPreference: {
+    type: String,
+    enum: ['Veg', 'Non Veg']
+  },
   email: {
     type: String,
     required: true,

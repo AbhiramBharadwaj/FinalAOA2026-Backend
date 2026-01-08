@@ -24,6 +24,20 @@ const addLine = (doc, label, value, y) => {
   doc.text(String(value || 'N/A'), 60, y);
 };
 
+const buildRegistrationLabel = (registration) => {
+  const labels = [];
+  if (registration?.addWorkshop || registration?.selectedWorkshop) {
+    labels.push('Workshop');
+  }
+  if (registration?.addAoaCourse) {
+    labels.push('AOA Certified Course');
+  }
+  if (registration?.addLifeMembership || registration?.lifetimeMembershipId) {
+    labels.push('AOA Life Membership');
+  }
+  return labels.length ? `Conference + ${labels.join(' + ')}` : 'Conference Only';
+};
+
 export const buildRegistrationInvoicePdf = (registration, user) => {
   const doc = new jsPDF('p', 'mm', 'a4');
   addHeader(doc, 'Registration Invoice');
@@ -47,7 +61,7 @@ export const buildRegistrationInvoicePdf = (registration, user) => {
   doc.setFontSize(11);
   doc.text('Registration Details', 20, y);
   y += 8;
-  addLine(doc, 'Package', registration.registrationType || 'N/A', y);
+  addLine(doc, 'Package', buildRegistrationLabel(registration), y);
   y += 6;
   addLine(doc, 'Booking Phase', registration.bookingPhase || 'N/A', y);
   y += 6;
@@ -71,7 +85,9 @@ export const buildRegistrationInvoicePdf = (registration, user) => {
   y += 6;
   addLine(doc, 'Processing Fee', formatAmount(registration.processingFee), y);
   y += 6;
-  addLine(doc, 'Total Paid', formatAmount(registration.totalAmount), y);
+  addLine(doc, 'Total Paid', formatAmount(registration.totalPaid || registration.totalAmount), y);
+  y += 6;
+  addLine(doc, 'Total Amount', formatAmount(registration.totalAmount), y);
 
   doc.setFontSize(9);
   doc.setTextColor(110);

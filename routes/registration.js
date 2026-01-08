@@ -1,11 +1,24 @@
 import express from 'express';
 import Registration from '../models/Registration.js';
 import { authenticateUser, requireProfileComplete } from '../middleware/auth.js';
-import { getBookingPhase, calculatePrice } from '../utils/pricing.js';
+import { getBookingPhase, calculateRegistrationTotals, getAddOnPricing } from '../utils/pricing.js';
 import { generateLifetimeMembershipId } from '../utils/membershipGenerator.js';
 import multer from 'multer';
 
 const router = express.Router();
+
+const normalizeRole = (role) => {
+  if (!role) return role;
+  const trimmed = String(role).trim();
+  const lower = trimmed.toLowerCase();
+  if (lower === 'aoa member') return 'AOA';
+  if (lower === 'non-aoa member' || lower === 'non aoa member') return 'NON_AOA';
+  if (lower === 'pgs & fellows' || lower === 'pgs and fellows') return 'PGS';
+  if (lower === 'aoa') return 'AOA';
+  if (lower === 'non_aoa' || lower === 'non-aoa') return 'NON_AOA';
+  if (lower === 'pgs') return 'PGS';
+  return trimmed;
+};
 
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
@@ -20,41 +33,48 @@ router.post(
   async (req, res) => {
     try {
       const {
-        registrationType,
         selectedWorkshop,
         accompanyingPersons = '0',
+        addWorkshop = 'false',
         addAoaCourse = 'false',
+        addLifeMembership = 'false',
       } = req.body;
 
-      if (!registrationType) {
-        return res.status(400).json({ message: 'Registration type is required' });
-      }
+      let wantsWorkshop = addWorkshop === 'true';
+      let wantsAoaCourse = addAoaCourse === 'true';
+      let wantsLifeMembership = addLifeMembership === 'true';
 
-      const isWorkshopType =
-        registrationType === 'WORKSHOP_CONFERENCE' || registrationType === 'COMBO';
-
-      if (isWorkshopType && !selectedWorkshop) {
+      if (wantsWorkshop && !selectedWorkshop) {
         return res.status(400).json({ message: 'Workshop selection is required' });
       }
 
-      if (registrationType === 'AOA_CERTIFIED_COURSE' && req.user.role === 'PGS') {
+      const normalizedRole = normalizeRole(req.user.role);
+
+      if (wantsAoaCourse && normalizedRole === 'PGS') {
         return res.status(400).json({
           message: 'AOA Certified Course is only available for AOA and Non-AOA members',
         });
       }
 
-      if (addAoaCourse === 'true' && req.user.role === 'PGS') {
+      if (wantsLifeMembership && normalizedRole !== 'NON_AOA') {
         return res.status(400).json({
-          message: 'PGS members cannot add AOA Certified Course',
+          message: 'AOA Life Membership is only available for Non-AOA members',
         });
       }
 
       
       let registration = await Registration.findOne({ userId: req.user._id });
 
+      if (registration?.paymentStatus === 'PAID') {
+        if (registration.addWorkshop && !wantsWorkshop) wantsWorkshop = true;
+        if (registration.addAoaCourse && !wantsAoaCourse) wantsAoaCourse = true;
+        if (registration.addLifeMembership && !wantsLifeMembership) wantsLifeMembership = true;
+      }
+
       
-      const isAoaRequested = registrationType === 'AOA_CERTIFIED_COURSE' || addAoaCourse === 'true';
-      const wasAoaRequested = registration?.registrationType === 'AOA_CERTIFIED_COURSE' || registration?.addAoaCourse;
+      const isAoaRequested = wantsAoaCourse;
+      const wasAoaRequested =
+        registration?.registrationType === 'AOA_CERTIFIED_COURSE' || registration?.addAoaCourse;
 
       if (isAoaRequested && !wasAoaRequested) {
         
@@ -69,10 +89,29 @@ router.post(
         }
       }
 
-      const bookingPhase = getBookingPhase();
-      const basePricing = calculatePrice(req.user.role, registrationType, bookingPhase);
+      const bookingPhase =
+        registration?.paymentStatus === 'PAID' ? registration.bookingPhase : getBookingPhase();
+      const addOnPricing = getAddOnPricing(normalizedRole, bookingPhase);
 
-      if (!basePricing || basePricing.totalWithoutGST <= 0) {
+      if (wantsWorkshop && addOnPricing.workshop.priceWithoutGST <= 0 && !registration?.addWorkshop) {
+        return res.status(400).json({ message: 'Workshops are not available in this phase' });
+      }
+
+      if (wantsAoaCourse && bookingPhase === 'SPOT' && !registration?.addAoaCourse) {
+        return res.status(400).json({ message: 'AOA Certified Course is not available for spot registration' });
+      }
+
+      if (wantsLifeMembership && addOnPricing.lifeMembership.priceWithoutGST <= 0 && !registration?.addLifeMembership) {
+        return res.status(400).json({ message: 'AOA Life Membership is not available in this phase' });
+      }
+
+      const pricingTotals = calculateRegistrationTotals(normalizedRole, bookingPhase, {
+        addWorkshop: wantsWorkshop,
+        addAoaCourse: wantsAoaCourse,
+        addLifeMembership: wantsLifeMembership,
+      });
+
+      if (!pricingTotals || pricingTotals.packageBase <= 0) {
         return res.status(400).json({
           message: 'Pricing not available for this package in current phase',
         });
@@ -80,36 +119,43 @@ router.post(
 
       const accompanyingCount = parseInt(accompanyingPersons, 10) || 0;
       const accompanyingBase = accompanyingCount * 7000;
-      const aoaBase = addAoaCourse === 'true' ? 5000 : 0;
-
-      const totalBase = basePricing.totalWithoutGST + accompanyingBase + aoaBase;
+      const totalBase = pricingTotals.packageBase + accompanyingBase;
       const totalGST = Math.round(totalBase * 0.18);
       const subtotalWithGST = totalBase + totalGST;
       const processingFee = Math.round(subtotalWithGST * 0.0165);
       const finalAmount = subtotalWithGST + processingFee;
 
       const updateData = {
-        registrationType,
-        selectedWorkshop: isWorkshopType ? selectedWorkshop : null,
+        registrationType: wantsWorkshop ? 'WORKSHOP_CONFERENCE' : 'CONFERENCE_ONLY',
+        addWorkshop: wantsWorkshop,
+        selectedWorkshop: wantsWorkshop ? selectedWorkshop : null,
+        workshopAddOn: pricingTotals.workshopAddOn,
         accompanyingPersons: accompanyingCount,
         accompanyingBase,
         accompanyingGST: Math.round(accompanyingBase * 0.18),
-        addAoaCourse: addAoaCourse === 'true',
-        aoaCourseBase: aoaBase,
-        aoaCourseGST: aoaBase > 0 ? 900 : 0,
+        addAoaCourse: wantsAoaCourse,
+        aoaCourseBase: pricingTotals.aoaCourseAddOn,
+        aoaCourseGST: pricingTotals.aoaCourseAddOn > 0 ? Math.round(pricingTotals.aoaCourseAddOn * 0.18) : 0,
+        addLifeMembership: wantsLifeMembership,
+        lifeMembershipBase: pricingTotals.lifeMembershipAddOn,
         bookingPhase,
-        packageBase: basePricing.totalWithoutGST,
-        packageGST: basePricing.gst,
+        basePrice: pricingTotals.basePrice,
+        packageBase: pricingTotals.packageBase,
+        packageGST: pricingTotals.gst,
         totalBase,
         totalGST,
         subtotalWithGST,
         processingFee,
         totalAmount: finalAmount,
         lifetimeMembershipId:
-          registrationType === 'COMBO' && !registration?.lifetimeMembershipId
+          wantsLifeMembership && !registration?.lifetimeMembershipId
             ? generateLifetimeMembershipId()
             : registration?.lifetimeMembershipId,
       };
+
+      const totalPaid = registration?.totalPaid || 0;
+      updateData.totalPaid = totalPaid;
+      updateData.paymentStatus = totalPaid >= finalAmount ? 'PAID' : 'PENDING';
 
       
       if (req.user.role === 'PGS') {
@@ -181,42 +227,52 @@ router.get('/my-registration', authenticateUser, async (req, res) => {
 router.get('/pricing', authenticateUser, async (req, res) => {
   try {
     const bookingPhase = getBookingPhase();
+    const normalizedRole = normalizeRole(req.user.role);
 
-    const conferenceOnly = calculatePrice(req.user.role, 'CONFERENCE_ONLY', bookingPhase);
-    const workshopConference = calculatePrice(req.user.role, 'WORKSHOP_CONFERENCE', bookingPhase);
-    const combo = calculatePrice(req.user.role, 'COMBO', bookingPhase);
-
-    const aoaCourseStandalone =
-      req.user.role === 'AOA' || req.user.role === 'NON_AOA'
-        ? calculatePrice(req.user.role, 'AOA_CERTIFIED_COURSE', bookingPhase)
-        : null;
+    const basePricing = calculateRegistrationTotals(normalizedRole, bookingPhase, {});
+    const addOnPricing = getAddOnPricing(normalizedRole, bookingPhase);
 
     const aoaCourseCount = await Registration.countDocuments({
-      $or: [
-        { registrationType: 'AOA_CERTIFIED_COURSE' },
-        { addAoaCourse: true },
-      ],
+      $or: [{ registrationType: 'AOA_CERTIFIED_COURSE' }, { addAoaCourse: true }],
     });
 
     const aoaCourseFull = aoaCourseCount >= 40;
 
     res.json({
       bookingPhase,
-      pricing: {
-        CONFERENCE_ONLY: conferenceOnly,
-        WORKSHOP_CONFERENCE: workshopConference,
-        COMBO: combo,
-        AOA_CERTIFIED_COURSE: aoaCourseStandalone,
+      base: {
+        conference: {
+          priceWithoutGST: basePricing.basePrice,
+          gst: Math.round(basePricing.basePrice * 0.18),
+          totalAmount: basePricing.basePrice + Math.round(basePricing.basePrice * 0.18),
+        },
       },
       addOns: {
-        aoaCourseAddOn:
-          req.user.role === 'AOA' || req.user.role === 'NON_AOA'
-            ? {
-                priceWithoutGST: 5000,
-                gst: 900,
-                totalAmount: 5900,
-              }
-            : null,
+        workshop: {
+          priceWithoutGST: addOnPricing.workshop.priceWithoutGST,
+          gst: Math.round(addOnPricing.workshop.priceWithoutGST * 0.18),
+          totalAmount:
+            addOnPricing.workshop.priceWithoutGST +
+            Math.round(addOnPricing.workshop.priceWithoutGST * 0.18),
+        },
+        aoaCourse: normalizedRole === 'AOA' || normalizedRole === 'NON_AOA'
+          ? {
+              priceWithoutGST: addOnPricing.aoaCourse.priceWithoutGST,
+              gst: Math.round(addOnPricing.aoaCourse.priceWithoutGST * 0.18),
+              totalAmount:
+                addOnPricing.aoaCourse.priceWithoutGST +
+                Math.round(addOnPricing.aoaCourse.priceWithoutGST * 0.18),
+            }
+          : null,
+        lifeMembership: normalizedRole === 'NON_AOA'
+          ? {
+              priceWithoutGST: addOnPricing.lifeMembership.priceWithoutGST,
+              gst: Math.round(addOnPricing.lifeMembership.priceWithoutGST * 0.18),
+              totalAmount:
+                addOnPricing.lifeMembership.priceWithoutGST +
+                Math.round(addOnPricing.lifeMembership.priceWithoutGST * 0.18),
+            }
+          : null,
       },
       meta: {
         aoaCourseCount,
