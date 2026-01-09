@@ -62,6 +62,12 @@ router.post(
         });
       }
 
+      if (normalizedRole === 'AOA' && wantsWorkshop && wantsAoaCourse) {
+        return res.status(400).json({
+          message: 'AOA members can choose either Workshop or AOA Certified Course',
+        });
+      }
+
       
       let registration = await Registration.findOne({ userId: req.user._id });
 
