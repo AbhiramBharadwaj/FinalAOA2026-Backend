@@ -1,35 +1,69 @@
-import nodemailer from 'nodemailer';
+const resendEndpoint = 'https://api.resend.com/emails';
 
-let cachedTransporter = null;
-
-const getTransporter = () => {
-  if (cachedTransporter) return cachedTransporter;
-
-  const host = process.env.SMTP_HOST;
-  const port = Number(process.env.SMTP_PORT || 587);
-  const user = process.env.SMTP_USER;
-  const pass = process.env.SMTP_PASS;
-
-  if (!host || !user || !pass) {
-    throw new Error('SMTP configuration missing');
-  }
-
-  cachedTransporter = nodemailer.createTransport({
-    host,
-    port,
-    secure: port === 465,
-    auth: { user, pass },
-  });
-
-  return cachedTransporter;
-};
-
-const getFromAddress = () => {
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
+const getResendFromAddress = () => {
+  const from = process.env.RESEND_FROM;
   if (!from) {
-    throw new Error('SMTP_FROM not configured');
+    throw new Error('RESEND_FROM not configured');
   }
   return from;
+};
+
+const normalizeResendAttachments = (attachments = []) =>
+  attachments.map((attachment) => {
+    const content = attachment.content;
+    let encodedContent = content;
+    if (Buffer.isBuffer(content)) {
+      encodedContent = content.toString('base64');
+    }
+    if (typeof encodedContent !== 'string') {
+      throw new Error('Unsupported attachment content type for Resend');
+    }
+    return {
+      filename: attachment.filename,
+      content: encodedContent,
+      content_type: attachment.contentType || attachment.content_type,
+      content_id: attachment.cid || attachment.contentId,
+    };
+  });
+
+const sendViaResend = async ({ to, subject, text, html, attachments }) => {
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) {
+    throw new Error('RESEND_API_KEY not configured');
+  }
+  if (typeof fetch !== 'function') {
+    throw new Error('Fetch API not available; use Node 18+ or add a fetch polyfill');
+  }
+
+  const payload = {
+    from: getResendFromAddress(),
+    to: Array.isArray(to) ? to : [to],
+    subject,
+    text,
+    html,
+  };
+
+  if (attachments?.length) {
+    payload.attachments = normalizeResendAttachments(attachments);
+  }
+
+  const response = await fetch(resendEndpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    throw new Error(`Resend error ${response.status}: ${errorText}`);
+  }
+};
+
+const sendEmail = async ({ to, subject, text, html, attachments }) => {
+  await sendViaResend({ to, subject, text, html, attachments });
 };
 
 const wrapEmail = (title, bodyHtml) => `
@@ -51,7 +85,6 @@ const wrapEmail = (title, bodyHtml) => `
 `;
 
 export const sendRegistrationEmail = async (user) => {
-  const transporter = getTransporter();
   const subject = 'AOACON 2026 Registration Received';
   const text = [
     `Hello ${user.name},`,
@@ -78,8 +111,7 @@ export const sendRegistrationEmail = async (user) => {
 
   const html = wrapEmail('Registration Received', bodyHtml);
 
-  return transporter.sendMail({
-    from: getFromAddress(),
+  return sendEmail({
     to: user.email,
     subject,
     text,
@@ -94,7 +126,6 @@ export const sendPaymentSuccessEmail = async ({
   qrCid,
   attachments = [],
 }) => {
-  const transporter = getTransporter();
   const text = [
     `Hello ${user.name},`,
     '',
@@ -131,8 +162,7 @@ export const sendPaymentSuccessEmail = async ({
     `
   );
 
-  return transporter.sendMail({
-    from: getFromAddress(),
+  return sendEmail({
     to: user.email,
     subject,
     text,
@@ -142,7 +172,6 @@ export const sendPaymentSuccessEmail = async ({
 };
 
 export const sendAbstractSubmittedEmail = async (abstract) => {
-  const transporter = getTransporter();
   const user = abstract.userId;
   const subject = 'AOACON 2026 Abstract Submitted';
   const text = [
@@ -170,8 +199,7 @@ export const sendAbstractSubmittedEmail = async (abstract) => {
 
   const html = wrapEmail('Abstract Submitted', bodyHtml);
 
-  return transporter.sendMail({
-    from: getFromAddress(),
+  return sendEmail({
     to: user.email,
     subject,
     text,
@@ -180,7 +208,6 @@ export const sendAbstractSubmittedEmail = async (abstract) => {
 };
 
 export const sendAbstractReviewEmail = async (abstract) => {
-  const transporter = getTransporter();
   const user = abstract.userId;
   const status = abstract.status;
   const statusLabel = status === 'APPROVED' ? 'Approved' : 'Rejected';
@@ -216,9 +243,30 @@ export const sendAbstractReviewEmail = async (abstract) => {
 
   const html = wrapEmail(`Abstract ${statusLabel}`, bodyHtml);
 
-  return transporter.sendMail({
-    from: getFromAddress(),
+  return sendEmail({
     to: user.email,
+    subject,
+    text,
+    html,
+  });
+};
+
+export const sendTestEmail = async (to) => {
+  const subject = 'AOACON 2026 Email Test';
+  const text = [
+    'This is a test email from AOACON 2026.',
+    `Sent at: ${new Date().toLocaleString('en-IN')}`,
+  ].join('\n');
+  const html = wrapEmail(
+    'Email Test',
+    `
+      <p style="margin:0 0 10px;">This is a test email from AOACON 2026.</p>
+      <p style="margin:0;">Sent at: ${new Date().toLocaleString('en-IN')}</p>
+    `
+  );
+
+  return sendEmail({
+    to,
     subject,
     text,
     html,

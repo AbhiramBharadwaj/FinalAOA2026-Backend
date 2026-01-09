@@ -1,5 +1,8 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import { sendRegistrationEmail } from '../utils/email.js';
@@ -31,6 +34,29 @@ const hasValue = (value) => {
 };
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : value);
+
+const collegeLetterDir = 'uploads/college-letters';
+const collegeLetterStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    fs.mkdirSync(collegeLetterDir, { recursive: true });
+    cb(null, collegeLetterDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1e9);
+    cb(null, `college-letter-${uniqueSuffix}${path.extname(file.originalname)}`);
+  },
+});
+const collegeLetterUpload = multer({
+  storage: collegeLetterStorage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed'), false);
+    }
+  },
+});
 
 const isProfileComplete = (userData) => {
   for (const field of profileFields) {
@@ -232,8 +258,7 @@ router.put('/profile', authenticateUser, async (req, res) => {
       'designation',
       'medicalCouncilName',
       'medicalCouncilNumber',
-      'membershipId',
-      'collegeLetter'
+      'membershipId'
     ];
 
     for (const field of updatableFields) {
@@ -245,10 +270,6 @@ router.put('/profile', authenticateUser, async (req, res) => {
 
     if (updates.membershipId && user.role !== 'AOA') {
       updates.membershipId = undefined;
-    }
-
-    if (updates.collegeLetter && user.role !== 'PGS') {
-      updates.collegeLetter = undefined;
     }
 
     const nextUser = { ...user.toObject(), ...updates };
@@ -267,6 +288,34 @@ router.put('/profile', authenticateUser, async (req, res) => {
     if (error.code === 11000) {
       return res.status(400).json({ message: 'Duplicate value not allowed' });
     }
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.post('/profile/college-letter', authenticateUser, collegeLetterUpload.single('collegeLetter'), async (req, res) => {
+  try {
+    if (req.isAdmin) {
+      return res.status(403).json({ message: 'Admins cannot update user profiles' });
+    }
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'PDF file is required' });
+    }
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    if (user.role !== 'PGS') {
+      return res.status(400).json({ message: 'Recommendation letter is only required for PGS & Fellows' });
+    }
+
+    user.collegeLetter = req.file.path;
+    user.isProfileComplete = isProfileComplete(user);
+    await user.save();
+
+    return res.json({ user });
+  } catch (error) {
+    console.error('College letter upload error:', error);
     return res.status(500).json({ message: 'Server error' });
   }
 });

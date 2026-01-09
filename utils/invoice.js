@@ -32,7 +32,7 @@ const buildRegistrationLabel = (registration) => {
   if (registration?.addAoaCourse) {
     labels.push('AOA Certified Course');
   }
-  if (registration?.addLifeMembership || registration?.lifetimeMembershipId) {
+  if (registration?.addLifeMembership) {
     labels.push('AOA Life Membership');
   }
   return labels.length ? `Conference + ${labels.join(' + ')}` : 'Conference Only';
@@ -69,11 +69,6 @@ export const buildRegistrationInvoicePdf = (registration, user) => {
     addLine(doc, 'Workshop', registration.selectedWorkshop, y);
     y += 6;
   }
-  if (registration.lifetimeMembershipId) {
-    addLine(doc, 'Lifetime ID', registration.lifetimeMembershipId, y);
-    y += 6;
-  }
-
   y += 4;
   doc.setTextColor(0);
   doc.setFontSize(11);

@@ -20,7 +20,7 @@ const buildRegistrationLabel = (registration) => {
   const labels = [];
   if (registration?.addWorkshop || registration?.selectedWorkshop) labels.push('Workshop');
   if (registration?.addAoaCourse) labels.push('AOA Certified Course');
-  if (registration?.addLifeMembership || registration?.lifetimeMembershipId) labels.push('AOA Life Membership');
+  if (registration?.addLifeMembership) labels.push('AOA Life Membership');
   return labels.length ? `Conference + ${labels.join(' + ')}` : 'Conference Only';
 };
 

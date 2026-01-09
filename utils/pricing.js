@@ -133,7 +133,7 @@ const getLifeMembershipAddOnPrice = (userRole, bookingPhase) => {
 const getAOACourseAddOnPrice = (userRole) => {
   const role = normalizeRole(userRole);
   if (role === 'AOA') return 5000;
-  if (role === 'NON_AOA') return 2000;
+  if (role === 'NON_AOA') return 5000;
   return 0;
 };
 

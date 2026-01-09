@@ -1,11 +1,12 @@
 import express from 'express';
+import multer from 'multer';
 import Registration from '../models/Registration.js';
 import { authenticateUser, requireProfileComplete } from '../middleware/auth.js';
 import { getBookingPhase, calculateRegistrationTotals, getAddOnPricing } from '../utils/pricing.js';
 import { generateLifetimeMembershipId } from '../utils/membershipGenerator.js';
-import multer from 'multer';
 
 const router = express.Router();
+const upload = multer();
 
 const normalizeRole = (role) => {
   if (!role) return role;
@@ -20,16 +21,11 @@ const normalizeRole = (role) => {
   return trimmed;
 };
 
-const storage = multer.memoryStorage();
-const upload = multer({ storage });
-
-
-
 router.post(
   '/',
   authenticateUser,
   requireProfileComplete,
-  upload.single('collegeLetter'),
+  upload.none(),
   async (req, res) => {
     try {
       const {
@@ -154,27 +150,14 @@ router.post(
         processingFee,
         totalAmount: finalAmount,
         lifetimeMembershipId:
-          wantsLifeMembership && !registration?.lifetimeMembershipId
-            ? generateLifetimeMembershipId()
-            : registration?.lifetimeMembershipId,
+          wantsLifeMembership
+            ? registration?.lifetimeMembershipId || generateLifetimeMembershipId()
+            : null,
       };
 
       const totalPaid = registration?.totalPaid || 0;
       updateData.totalPaid = totalPaid;
       updateData.paymentStatus = totalPaid >= finalAmount ? 'PAID' : 'PENDING';
-
-      
-      if (req.user.role === 'PGS') {
-        if (!req.file && !registration?.collegeLetter) {
-          return res.status(400).json({ message: 'College letter is required for PGS & Fellows' });
-        }
-        if (req.file) {
-          updateData.collegeLetter = {
-            data: req.file.buffer,
-            contentType: req.file.mimetype,
-          };
-        }
-      }
 
       if (registration) {
         
