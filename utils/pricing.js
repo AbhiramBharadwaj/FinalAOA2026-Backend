@@ -50,19 +50,19 @@ const getConferencePrice = (userRole, bookingPhase) => {
   const role = normalizeRole(userRole);
   const prices = {
     AOA: {
-      EARLY_BIRD: 8000,
-      REGULAR: 10000,
-      SPOT: 13000,
+      EARLY_BIRD: 10,
+      REGULAR: 10,
+      SPOT: 10,
     },
     NON_AOA: {
-      EARLY_BIRD: 11000,
-      REGULAR: 13000,
-      SPOT: 16000,
+      EARLY_BIRD: 10,
+      REGULAR: 10,
+      SPOT: 10,
     },
     PGS: {
-      EARLY_BIRD: 7000,
-      REGULAR: 9000,
-      SPOT: 12000,
+      EARLY_BIRD: 10,
+      REGULAR: 10,
+      SPOT: 10,
     },
   };
 
