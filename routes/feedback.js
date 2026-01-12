@@ -1,12 +1,14 @@
 import express from 'express';
 import Feedback from '../models/Feedback.js';
 import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 
 
 router.post('/submit', authenticateUser, requireProfileComplete, async (req, res) => {
   try {
+    logger.info('feedback.submit.start', { requestId: req.requestId, userId: req.user?._id });
     
     const now = new Date();
     const feedbackOpenDate = new Date('2024-11-01');
@@ -52,12 +54,21 @@ router.post('/submit', authenticateUser, requireProfileComplete, async (req, res
 
     await feedback.populate('userId', 'name email');
 
+    logger.info('feedback.submit.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      feedbackId: feedback._id,
+    });
     res.status(201).json({
       message: 'Feedback submitted successfully',
       feedback
     });
   } catch (error) {
-    console.error('Feedback submission error:', error);
+    logger.error('feedback.submit.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Server error during feedback submission' });
   }
 });
@@ -65,15 +76,25 @@ router.post('/submit', authenticateUser, requireProfileComplete, async (req, res
 
 router.get('/my-feedback', authenticateUser, async (req, res) => {
   try {
+    logger.info('feedback.fetch_self.start', { requestId: req.requestId, userId: req.user?._id });
     const feedback = await Feedback.findOne({ userId: req.user._id });
     
     if (!feedback) {
       return res.status(404).json({ message: 'No feedback found' });
     }
 
+    logger.info('feedback.fetch_self.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      feedbackId: feedback._id,
+    });
     res.json(feedback);
   } catch (error) {
-    console.error('Get feedback error:', error);
+    logger.error('feedback.fetch_self.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -81,13 +102,15 @@ router.get('/my-feedback', authenticateUser, async (req, res) => {
 
 router.get('/all', authenticateAdmin, async (req, res) => {
   try {
+    logger.info('feedback.list.start', { requestId: req.requestId, adminId: req.admin?._id });
     const feedback = await Feedback.find()
       .populate('userId', 'name email role')
       .sort({ createdAt: -1 });
 
+    logger.info('feedback.list.success', { requestId: req.requestId, count: feedback.length });
     res.json(feedback);
   } catch (error) {
-    console.error('Get all feedback error:', error);
+    logger.error('feedback.list.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -95,6 +118,7 @@ router.get('/all', authenticateAdmin, async (req, res) => {
 
 router.get('/analytics', authenticateAdmin, async (req, res) => {
   try {
+    logger.info('feedback.analytics.start', { requestId: req.requestId, adminId: req.admin?._id });
     const totalFeedback = await Feedback.countDocuments();
     
     const analytics = await Feedback.aggregate([
@@ -123,9 +147,10 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
     result.totalFeedback = totalFeedback;
     result.recommendationRate = totalFeedback > 0 ? (result.totalRecommend / totalFeedback) * 100 : 0;
 
+    logger.info('feedback.analytics.success', { requestId: req.requestId, totalFeedback });
     res.json(result);
   } catch (error) {
-    console.error('Feedback analytics error:', error);
+    logger.error('feedback.analytics.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });

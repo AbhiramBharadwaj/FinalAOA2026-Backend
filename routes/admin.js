@@ -8,6 +8,7 @@ import Feedback from '../models/Feedback.js';
 import User from '../models/User.js';
 import Attendance from '../models/Attendance.js'; // Add this import
 import { authenticateAdmin } from '../middleware/auth.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -200,7 +201,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Enhanced Dashboard error:', error);
+    logger.error('admin.dashboard.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -248,7 +249,7 @@ router.get('/registrations', authenticateAdmin, async (req, res) => {
 
     res.json(filteredRegistrations);
   } catch (error) {
-    console.error('Get registrations error:', error);
+    logger.error('admin.registrations.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -276,7 +277,7 @@ router.delete('/registrations/:id', authenticateAdmin, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Delete registration error:', error);
+    logger.error('admin.registration_delete.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -297,7 +298,7 @@ router.get('/payments', authenticateAdmin, async (req, res) => {
 
     res.json(payments);
   } catch (error) {
-    console.error('Get payments error:', error);
+    logger.error('admin.payments.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -326,7 +327,7 @@ router.get('/registrations', authenticateAdmin, async (req, res) => {
 
     res.json(filteredRegistrations);
   } catch (error) {
-    console.error('Get registrations error:', error);
+    logger.error('admin.registrations_by_role.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -348,7 +349,7 @@ router.get('/payments', authenticateAdmin, async (req, res) => {
 
     res.json(payments);
   } catch (error) {
-    console.error('Get payments error:', error);
+    logger.error('admin.payments_by_date.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -360,7 +361,7 @@ router.get('/users', authenticateAdmin, async (req, res) => {
       .sort({ createdAt: -1 });
     res.json(users);
   } catch (error) {
-    console.error('Get users error:', error);
+    logger.error('admin.users.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -407,7 +408,7 @@ router.delete('/users/:id', authenticateAdmin, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Delete user error:', error);
+    logger.error('admin.user_delete.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -461,7 +462,7 @@ router.post('/users/bulk-delete', authenticateAdmin, async (req, res) => {
       },
     });
   } catch (error) {
-    console.error('Bulk delete users error:', error);
+    logger.error('admin.user_bulk_delete.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -477,7 +478,7 @@ router.post('/accommodations', authenticateAdmin, async (req, res) => {
       accommodation
     });
   } catch (error) {
-    console.error('Create accommodation error:', error);
+    logger.error('admin.accommodation_create.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -500,7 +501,7 @@ router.put('/accommodations/:id', authenticateAdmin, async (req, res) => {
       accommodation
     });
   } catch (error) {
-    console.error('Update accommodation error:', error);
+    logger.error('admin.accommodation_update.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -520,7 +521,7 @@ router.delete('/accommodations/:id', authenticateAdmin, async (req, res) => {
 
     res.json({ message: 'Accommodation deleted successfully' });
   } catch (error) {
-    console.error('Delete accommodation error:', error);
+    logger.error('admin.accommodation_delete.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -538,7 +539,7 @@ router.get('/accommodation-bookings', authenticateAdmin, async (req, res) => {
 
     res.json(bookings);
   } catch (error) {
-    console.error('Get accommodation bookings error:', error);
+    logger.error('admin.accommodation_bookings.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });

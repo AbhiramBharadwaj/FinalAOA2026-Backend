@@ -2,6 +2,7 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
+import crypto from 'crypto';
 import authRoutes from './routes/auth.js';
 import registrationRoutes from './routes/registration.js';
 import accommodationRoutes from './routes/accommodation.js';
@@ -11,6 +12,7 @@ import adminRoutes from './routes/admin.js';
 import paymentRoutes from './routes/payment.js';
 import attendanceRoutes from './routes/attendance.js';
 import healthRoutes from './routes/health.js';
+import logger from './utils/logger.js';
 dotenv.config();
 
 const app = express();
@@ -29,6 +31,29 @@ app.options('*', cors());
 
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
+app.use((req, res, next) => {
+  const requestId = crypto.randomUUID
+    ? crypto.randomUUID()
+    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  req.requestId = requestId;
+  const start = Date.now();
+  logger.info('request.start', {
+    requestId,
+    method: req.method,
+    path: req.originalUrl,
+    ip: req.ip,
+  });
+  res.on('finish', () => {
+    logger.info('request.end', {
+      requestId,
+      method: req.method,
+      path: req.originalUrl,
+      statusCode: res.statusCode,
+      durationMs: Date.now() - start,
+    });
+  });
+  next();
+});
 
 app.use('/api/auth', authRoutes);
 app.use('/api/registration', registrationRoutes);
@@ -41,9 +66,21 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/health', healthRoutes);
 
 mongoose.connect("mongodb+srv://bhaskarAntoty123:MQEJ1W9gtKD547hy@bhaskarantony.wagpkay.mongodb.net/AOA1?retryWrites=true&w=majority")
-  .then(() => console.log('MongoDB connected'))
-  .catch(err => console.error('MongoDB connection error:', err));
+  .then(() => logger.info('mongo.connected'))
+  .catch(err => logger.error('mongo.connection_error', { message: err?.message || err }));
+
+app.use((err, req, res, next) => {
+  logger.error('request.unhandled_error', {
+    requestId: req.requestId,
+    message: err?.message || 'Unknown error',
+    stack: err?.stack,
+  });
+  if (res.headersSent) {
+    return next(err);
+  }
+  return res.status(500).json({ message: 'Server error' });
+});
 
 app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+  logger.info('server.started', { port: PORT });
 });

@@ -8,6 +8,7 @@ import User from '../models/User.js';
 import Admin from '../models/Admin.js';
 import { sendPasswordResetEmail, sendRegistrationEmail } from '../utils/email.js';
 import { authenticateUser } from '../middleware/auth.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -90,6 +91,12 @@ router.post('/register', async (req, res) => {
       instituteHospital, designation, medicalCouncilName, medicalCouncilNumber
     } = req.body;
 
+    logger.info('auth.register.start', {
+      requestId: req.requestId,
+      email: email?.toLowerCase(),
+      role,
+    });
+
     
     const requiredFields = [
       'name', 'email', 'phone', 'password', 'role'
@@ -145,6 +152,13 @@ router.post('/register', async (req, res) => {
 
     await user.save();
 
+    logger.info('auth.register.success', {
+      requestId: req.requestId,
+      userId: user._id,
+      email: user.email,
+      role: user.role,
+    });
+
     
     const token = jwt.sign(
       { userId: user._id, role: user.role },
@@ -169,10 +183,18 @@ router.post('/register', async (req, res) => {
     try {
       await sendRegistrationEmail(user);
     } catch (emailError) {
-      console.error('Registration email error:', emailError?.message || emailError);
+      logger.warn('auth.register.email_failed', {
+        requestId: req.requestId,
+        userId: user._id,
+        message: emailError?.message || emailError,
+      });
     }
   } catch (error) {
-    console.error('Registration error:', error);
+    logger.error('auth.register.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+      code: error?.code,
+    });
     if (error.code === 11000) {
       return res.status(400).json({ message: 'Email or phone already registered' });
     }
@@ -189,13 +211,17 @@ router.post('/login', async (req, res) => {
       return res.status(400).json({ message: 'Email and password required' });
     }
 
+    logger.info('auth.login.start', { requestId: req.requestId, email: email?.toLowerCase() });
+
     const user = await User.findOne({ email: email.toLowerCase() });
     if (!user) {
+      logger.warn('auth.login.invalid_credentials', { requestId: req.requestId, email: email?.toLowerCase() });
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
     const isMatch = await user.comparePassword(password);
     if (!isMatch) {
+      logger.warn('auth.login.invalid_credentials', { requestId: req.requestId, email: email?.toLowerCase() });
       return res.status(400).json({ message: 'Invalid credentials' });
     }
 
@@ -205,6 +231,12 @@ router.post('/login', async (req, res) => {
       JWT_SECRET,
       { expiresIn: '7d' }
     );
+
+    logger.info('auth.login.success', {
+      requestId: req.requestId,
+      userId: user._id,
+      email: user.email,
+    });
 
     res.json({
       success: true,
@@ -221,7 +253,7 @@ router.post('/login', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Login error:', error);
+    logger.error('auth.login.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -233,8 +265,11 @@ router.post('/forgot-password', async (req, res) => {
       return res.status(400).json({ message: 'Email is required' });
     }
 
+    logger.info('auth.forgot_password.start', { requestId: req.requestId, email });
+
     const user = await User.findOne({ email });
     if (!user) {
+      logger.info('auth.forgot_password.not_found', { requestId: req.requestId, email });
       return res.json({ message: 'If this email is registered, a reset link was sent.' });
     }
 
@@ -252,12 +287,19 @@ router.post('/forgot-password', async (req, res) => {
         isAdmin: false
       });
     } catch (emailError) {
-      console.error('Password reset email error:', emailError?.message || emailError);
+      logger.warn('auth.forgot_password.email_failed', {
+        requestId: req.requestId,
+        userId: user._id,
+        message: emailError?.message || emailError,
+      });
     }
 
     return res.json({ message: 'If this email is registered, a reset link was sent.' });
   } catch (error) {
-    console.error('Forgot password error:', error);
+    logger.error('auth.forgot_password.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+    });
     return res.status(500).json({ message: 'Server error' });
   }
 });
@@ -270,6 +312,8 @@ router.post('/reset-password', async (req, res) => {
     if (!email || !token || !password) {
       return res.status(400).json({ message: 'Email, token, and password are required' });
     }
+
+    logger.info('auth.reset_password.start', { requestId: req.requestId, email });
 
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const user = await User.findOne({
@@ -287,9 +331,14 @@ router.post('/reset-password', async (req, res) => {
     user.resetPasswordExpires = undefined;
     await user.save();
 
+    logger.info('auth.reset_password.success', { requestId: req.requestId, userId: user._id });
+
     return res.json({ message: 'Password updated successfully' });
   } catch (error) {
-    console.error('Reset password error:', error);
+    logger.error('auth.reset_password.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+    });
     return res.status(500).json({ message: 'Server error' });
   }
 });
@@ -307,6 +356,8 @@ router.put('/profile', authenticateUser, async (req, res) => {
     if (req.isAdmin) {
       return res.status(403).json({ message: 'Admins cannot update user profiles' });
     }
+
+    logger.info('auth.profile_update.start', { requestId: req.requestId, userId: req.user?._id });
 
     const user = await User.findById(req.user._id);
     if (!user) return res.status(404).json({ message: 'User not found' });
@@ -364,9 +415,15 @@ router.put('/profile', authenticateUser, async (req, res) => {
 
     await user.save();
 
+    logger.info('auth.profile_update.success', { requestId: req.requestId, userId: user._id });
+
     return res.json({ user });
   } catch (error) {
-    console.error('Profile update error:', error);
+    logger.error('auth.profile_update.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+      code: error?.code,
+    });
     if (error.code === 11000) {
       return res.status(400).json({ message: 'Duplicate value not allowed' });
     }
@@ -379,6 +436,8 @@ router.post('/profile/college-letter', authenticateUser, collegeLetterUpload.sin
     if (req.isAdmin) {
       return res.status(403).json({ message: 'Admins cannot update user profiles' });
     }
+
+    logger.info('auth.college_letter_upload.start', { requestId: req.requestId, userId: req.user?._id });
 
     if (!req.file) {
       return res.status(400).json({ message: 'PDF file is required' });
@@ -395,9 +454,18 @@ router.post('/profile/college-letter', authenticateUser, collegeLetterUpload.sin
     user.isProfileComplete = isProfileComplete(user);
     await user.save();
 
+    logger.info('auth.college_letter_upload.success', {
+      requestId: req.requestId,
+      userId: user._id,
+      filePath: req.file.path,
+    });
+
     return res.json({ user });
   } catch (error) {
-    console.error('College letter upload error:', error);
+    logger.error('auth.college_letter_upload.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+    });
     return res.status(500).json({ message: 'Server error' });
   }
 });
@@ -406,6 +474,8 @@ router.post('/profile/college-letter', authenticateUser, collegeLetterUpload.sin
 router.post('/admin/login', async (req, res) => {
   try {
     const { email, password } = req.body;
+
+    logger.info('admin.login.start', { requestId: req.requestId, email: email?.toLowerCase() });
 
     const admin = await Admin.findOne({ email: email.toLowerCase() });
     if (!admin) return res.status(400).json({ message: 'Invalid credentials' });
@@ -419,6 +489,12 @@ router.post('/admin/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    logger.info('admin.login.success', {
+      requestId: req.requestId,
+      adminId: admin._id,
+      email: admin.email,
+    });
+
     res.json({
       success: true,
       message: 'Admin login successful',
@@ -430,7 +506,7 @@ router.post('/admin/login', async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Admin login error:', error);
+    logger.error('admin.login.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -442,8 +518,11 @@ router.post('/admin/forgot-password', async (req, res) => {
       return res.status(400).json({ message: 'Email is required' });
     }
 
+    logger.info('admin.forgot_password.start', { requestId: req.requestId, email });
+
     const admin = await Admin.findOne({ email });
     if (!admin) {
+      logger.info('admin.forgot_password.not_found', { requestId: req.requestId, email });
       return res.json({ message: 'If this email is registered, a reset link was sent.' });
     }
 
@@ -461,12 +540,19 @@ router.post('/admin/forgot-password', async (req, res) => {
         isAdmin: true
       });
     } catch (emailError) {
-      console.error('Admin password reset email error:', emailError?.message || emailError);
+      logger.warn('admin.forgot_password.email_failed', {
+        requestId: req.requestId,
+        adminId: admin._id,
+        message: emailError?.message || emailError,
+      });
     }
 
     return res.json({ message: 'If this email is registered, a reset link was sent.' });
   } catch (error) {
-    console.error('Admin forgot password error:', error);
+    logger.error('admin.forgot_password.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+    });
     return res.status(500).json({ message: 'Server error' });
   }
 });
@@ -479,6 +565,8 @@ router.post('/admin/reset-password', async (req, res) => {
     if (!email || !token || !password) {
       return res.status(400).json({ message: 'Email, token, and password are required' });
     }
+
+    logger.info('admin.reset_password.start', { requestId: req.requestId, email });
 
     const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
     const admin = await Admin.findOne({
@@ -496,9 +584,14 @@ router.post('/admin/reset-password', async (req, res) => {
     admin.resetPasswordExpires = undefined;
     await admin.save();
 
+    logger.info('admin.reset_password.success', { requestId: req.requestId, adminId: admin._id });
+
     return res.json({ message: 'Password updated successfully' });
   } catch (error) {
-    console.error('Admin reset password error:', error);
+    logger.error('admin.reset_password.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+    });
     return res.status(500).json({ message: 'Server error' });
   }
 });

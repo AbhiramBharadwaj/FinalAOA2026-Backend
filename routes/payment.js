@@ -13,6 +13,7 @@ import {
   buildRegistrationInvoicePdf,
   buildAccommodationInvoicePdf,
 } from '../utils/invoice.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 
@@ -33,6 +34,7 @@ const razorpay = new Razorpay({
 
 router.post('/create-order/registration', authenticateUser, requireProfileComplete, async (req, res) => {
   try {
+    logger.info('payment.registration_order.start', { requestId: req.requestId, userId: req.user?._id });
     const registration = await Registration.findOne({ userId: req.user._id });
     
     if (!registration) {
@@ -86,6 +88,13 @@ router.post('/create-order/registration', authenticateUser, requireProfileComple
     });
     await payment.save();
 
+    logger.info('payment.registration_order.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      registrationId: registration._id,
+      orderId: order.id,
+      amount: balanceDue,
+    });
     res.json({
       orderId: order.id,
       amount: balanceDue,
@@ -93,7 +102,11 @@ router.post('/create-order/registration', authenticateUser, requireProfileComple
       keyId: "rzp_live_S1h8EPxjXzDsaM"
     });
   } catch (error) {
-    console.error('Create order error:', error);
+    logger.error('payment.registration_order.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Failed to create payment order' });
   }
 });
@@ -102,6 +115,11 @@ router.post('/create-order/registration', authenticateUser, requireProfileComple
 router.post('/create-order/accommodation', authenticateUser, requireProfileComplete, async (req, res) => {
   try {
     const { bookingId } = req.body;
+    logger.info('payment.accommodation_order.start', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      bookingId,
+    });
     
     const booking = await AccommodationBooking.findOne({
       _id: bookingId,
@@ -142,6 +160,13 @@ router.post('/create-order/accommodation', authenticateUser, requireProfileCompl
     });
     await payment.save();
 
+    logger.info('payment.accommodation_order.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      bookingId: booking._id,
+      orderId: order.id,
+      amount: booking.totalAmount,
+    });
     res.json({
       orderId: order.id,
       amount: booking.totalAmount,
@@ -149,7 +174,11 @@ router.post('/create-order/accommodation', authenticateUser, requireProfileCompl
       keyId: "rzp_live_S1h8EPxjXzDsaM"
     });
   } catch (error) {
-    console.error('Create accommodation order error:', error);
+    logger.error('payment.accommodation_order.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Failed to create payment order' });
   }
 });
@@ -158,6 +187,12 @@ router.post('/create-order/accommodation', authenticateUser, requireProfileCompl
 router.post('/verify', authenticateUser, async (req, res) => {
   try {
     const { razorpay_order_id, razorpay_payment_id, razorpay_signature } = req.body;
+
+    logger.info('payment.verify.start', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      orderId: razorpay_order_id,
+    });
 
     
     const body = razorpay_order_id + "|" + razorpay_payment_id;
@@ -295,12 +330,26 @@ router.post('/verify', authenticateUser, async (req, res) => {
         }
       }
     } catch (emailError) {
-      console.error('Payment email error:', emailError?.message || emailError);
+      logger.warn('payment.email_failed', {
+        requestId: req.requestId,
+        paymentId: payment._id,
+        message: emailError?.message || emailError,
+      });
     }
 
+    logger.info('payment.verify.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      paymentId: payment._id,
+      paymentType: payment.paymentType,
+    });
     res.json({ message: 'Payment verified successfully' });
   } catch (error) {
-    console.error('Payment verification error:', error);
+    logger.error('payment.verify.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Payment verification failed' });
   }
 });
@@ -309,6 +358,12 @@ router.post('/verify', authenticateUser, async (req, res) => {
 router.post('/failed', authenticateUser, async (req, res) => {
   try {
     const { razorpay_order_id, error } = req.body;
+
+    logger.warn('payment.failed.start', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      orderId: razorpay_order_id,
+    });
 
     
     const payment = await Payment.findOne({ razorpayOrderId: razorpay_order_id });
@@ -330,9 +385,18 @@ router.post('/failed', authenticateUser, async (req, res) => {
       }
     }
 
+    logger.warn('payment.failed.recorded', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      orderId: razorpay_order_id,
+    });
     res.json({ message: 'Payment failure recorded' });
   } catch (error) {
-    console.error('Payment failure error:', error);
+    logger.error('payment.failed.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Failed to record payment failure' });
   }
 });

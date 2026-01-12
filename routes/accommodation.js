@@ -2,19 +2,30 @@ import express from 'express';
 import Accommodation from '../models/Accommodation.js';
 import AccommodationBooking from '../models/AccommodationBooking.js';
 import { authenticateUser, requireProfileComplete } from '../middleware/auth.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 
 
 router.get('/my-bookings', authenticateUser, async (req, res) => {
   try {
+    logger.info('accommodation.bookings.self.start', { requestId: req.requestId, userId: req.user?._id });
     const bookings = await AccommodationBooking.find({ userId: req.user._id })
       .populate('accommodationId')
       .sort({ createdAt: -1 });
 
+    logger.info('accommodation.bookings.self.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      count: bookings.length,
+    });
     res.json(bookings);
   } catch (error) {
-    console.error('Get my-bookings error:', error);
+    logger.error('accommodation.bookings.self.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -22,10 +33,12 @@ router.get('/my-bookings', authenticateUser, async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
+    logger.info('accommodation.list.start', { requestId: req.requestId });
     const accommodations = await Accommodation.find({ isActive: true });
+    logger.info('accommodation.list.success', { requestId: req.requestId, count: accommodations.length });
     res.json(accommodations);
   } catch (error) {
-    console.error('Get all accommodations error:', error);
+    logger.error('accommodation.list.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -33,13 +46,19 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
+    logger.info('accommodation.get.start', { requestId: req.requestId, accommodationId: req.params.id });
     const accommodation = await Accommodation.findById(req.params.id);
     if (!accommodation) {
       return res.status(404).json({ message: 'Accommodation not found' });
     }
+    logger.info('accommodation.get.success', { requestId: req.requestId, accommodationId: req.params.id });
     res.json(accommodation);
   } catch (error) {
-    console.error('Get accommodation by ID error:', error);
+    logger.error('accommodation.get.error', {
+      requestId: req.requestId,
+      accommodationId: req.params.id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -47,6 +66,7 @@ router.get('/:id', async (req, res) => {
 
 router.post('/book', authenticateUser, requireProfileComplete, async (req, res) => {
   try {
+    logger.info('accommodation.book.start', { requestId: req.requestId, userId: req.user?._id });
     const {
       accommodationId,
       checkInDate,
@@ -94,12 +114,23 @@ router.post('/book', authenticateUser, requireProfileComplete, async (req, res) 
 
     await booking.populate(['accommodationId', 'userId']);
 
+    logger.info('accommodation.book.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      bookingId: booking._id,
+      accommodationId,
+      totalAmount,
+    });
     res.status(201).json({
       message: 'Booking created successfully',
       booking,
     });
   } catch (error) {
-    console.error('Booking error:', error);
+    logger.error('accommodation.book.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Server error during booking' });
   }
 });

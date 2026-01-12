@@ -4,6 +4,7 @@ import Registration from '../models/Registration.js';
 import { authenticateUser, requireProfileComplete } from '../middleware/auth.js';
 import { getBookingPhase, calculateRegistrationTotals, getAddOnPricing } from '../utils/pricing.js';
 import { generateLifetimeMembershipId } from '../utils/membershipGenerator.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 const upload = multer();
@@ -28,6 +29,7 @@ router.post(
   upload.none(),
   async (req, res) => {
     try {
+      logger.info('registration.upsert.start', { requestId: req.requestId, userId: req.user?._id });
       const {
         selectedWorkshop,
         accompanyingPersons = '0',
@@ -163,6 +165,12 @@ router.post(
         
         Object.assign(registration, updateData);
         await registration.save();
+        logger.info('registration.updated', {
+          requestId: req.requestId,
+          userId: req.user?._id,
+          registrationId: registration._id,
+          totalAmount: registration.totalAmount,
+        });
         res.json({
           message: 'Registration updated successfully',
           registration,
@@ -174,6 +182,12 @@ router.post(
           ...updateData,
         });
         await registration.save();
+        logger.info('registration.created', {
+          requestId: req.requestId,
+          userId: req.user?._id,
+          registrationId: registration._id,
+          totalAmount: registration.totalAmount,
+        });
         res.status(201).json({
           message: 'Registration created successfully',
           registration,
@@ -183,7 +197,11 @@ router.post(
       await registration.populate('userId', 'name email role membershipId');
 
     } catch (error) {
-      console.error('Registration error:', error);
+      logger.error('registration.upsert.error', {
+        requestId: req.requestId,
+        userId: req.user?._id,
+        message: error?.message || error,
+      });
       if (error.name === 'ValidationError') {
         return res.status(400).json({
           message: 'Validation failed',
@@ -198,6 +216,7 @@ router.post(
 
 router.get('/my-registration', authenticateUser, async (req, res) => {
   try {
+    logger.info('registration.fetch_self.start', { requestId: req.requestId, userId: req.user?._id });
     const registration = await Registration.findOne({ userId: req.user._id })
       .populate('userId', 'name email role membershipId');
 
@@ -205,9 +224,18 @@ router.get('/my-registration', authenticateUser, async (req, res) => {
       return res.status(404).json({ message: 'No registration found' });
     }
 
+    logger.info('registration.fetch_self.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      registrationId: registration._id,
+    });
     res.json(registration);
   } catch (error) {
-    console.error('Get registration error:', error);
+    logger.error('registration.fetch_self.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Server error' });
   }
 });
@@ -215,6 +243,7 @@ router.get('/my-registration', authenticateUser, async (req, res) => {
 
 router.get('/pricing', authenticateUser, async (req, res) => {
   try {
+    logger.info('registration.pricing.start', { requestId: req.requestId, userId: req.user?._id });
     const bookingPhase = getBookingPhase();
     const normalizedRole = normalizeRole(req.user.role);
 
@@ -269,8 +298,17 @@ router.get('/pricing', authenticateUser, async (req, res) => {
         aoaCourseLimit: 40,
       },
     });
+    logger.info('registration.pricing.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      bookingPhase,
+    });
   } catch (error) {
-    console.error('Pricing error:', error);
+    logger.error('registration.pricing.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Server error' });
   }
 });

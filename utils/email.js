@@ -1,3 +1,5 @@
+import logger from './logger.js';
+
 const resendEndpoint = 'https://api.resend.com/emails';
 
 const getResendFromAddress = () => {
@@ -63,7 +65,24 @@ const sendViaResend = async ({ to, subject, text, html, attachments }) => {
 };
 
 const sendEmail = async ({ to, subject, text, html, attachments }) => {
-  await sendViaResend({ to, subject, text, html, attachments });
+  const recipients = Array.isArray(to) ? to : [to];
+  logger.info('email.send.start', {
+    to: recipients,
+    subject,
+    provider: 'resend',
+    attachments: attachments?.length || 0,
+  });
+  try {
+    await sendViaResend({ to, subject, text, html, attachments });
+    logger.info('email.send.success', { to: recipients, subject });
+  } catch (error) {
+    logger.error('email.send.failure', {
+      to: recipients,
+      subject,
+      message: error?.message || error,
+    });
+    throw error;
+  }
 };
 
 const wrapEmail = (title, bodyHtml) => `

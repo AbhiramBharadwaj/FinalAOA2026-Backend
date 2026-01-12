@@ -4,12 +4,14 @@ import Registration from '../models/Registration.js';
 import Attendance from '../models/Attendance.js';
 import jsPDF from 'jspdf';
 import { authenticateUser, authenticateAdmin } from '../middleware/auth.js';
+import logger from '../utils/logger.js';
 
 const router = express.Router();
 
 
 router.get('/my-qr', authenticateUser, async (req, res) => {
   try {
+    logger.info('attendance.my_qr.start', { requestId: req.requestId, userId: req.user?._id });
     const registration = await Registration.findOne({ 
       userId: req.user._id,
       paymentStatus: 'PAID'
@@ -41,7 +43,11 @@ router.get('/my-qr', authenticateUser, async (req, res) => {
       totalScans: attendance.totalScans,
     });
   } catch (error) {
-    console.error('My QR error:', error);
+    logger.error('attendance.my_qr.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Failed to fetch QR code' });
   }
 });
@@ -49,6 +55,11 @@ router.get('/my-qr', authenticateUser, async (req, res) => {
 
 router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) => {
   try {
+    logger.info('attendance.generate_qr.start', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      registrationId: req.params.registrationId,
+    });
     const registration = await Registration.findOne({
       _id: req.params.registrationId,
       userId: req.user._id,
@@ -68,6 +79,11 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
         width: 512,
         margin: 1,
         color: { dark: '#0d47a1', light: '#ffffff' }
+      });
+      logger.info('attendance.generate_qr.already_exists', {
+        requestId: req.requestId,
+        userId: req.user?._id,
+        registrationId: registration._id,
       });
       return res.json({ 
         message: 'QR already generated',
@@ -93,6 +109,12 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
 
     await attendanceData.populate('registrationId', 'userId registrationNumber registrationType paymentStatus');
     
+    logger.info('attendance.generate_qr.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      registrationId: registration._id,
+      attendanceId: attendanceData._id,
+    });
     res.status(201).json({
       message: 'QR code generated successfully',
       qrData,
@@ -100,7 +122,12 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
       attendance: attendanceData,
     });
   } catch (error) {
-    console.error('QR generation error:', error);
+    logger.error('attendance.generate_qr.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      registrationId: req.params.registrationId,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Failed to generate QR code' });
   }
 });
@@ -108,6 +135,7 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
 
 router.get('/', authenticateAdmin, async (req, res) => {
   try {
+    logger.info('attendance.list.start', { requestId: req.requestId, adminId: req.admin?._id });
     const attendances = await Attendance.find({ isActive: true })
       .populate({
         path: 'registrationId',
@@ -119,9 +147,10 @@ router.get('/', authenticateAdmin, async (req, res) => {
       .populate('scanHistory.scannedBy', 'name email')
       .sort({ createdAt: -1 });
     
+    logger.info('attendance.list.success', { requestId: req.requestId, count: attendances.length });
     res.json(attendances);
   } catch (error) {
-    console.error('Attendance fetch error:', error);
+    logger.error('attendance.list.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Failed to fetch attendance records' });
   }
 });
@@ -132,6 +161,12 @@ router.get('/qr-download/:attendanceId/:registrationNumber?', authenticateAdmin,
     const { attendanceId, registrationNumber } = req.params;
     let attendance;
 
+    logger.info('attendance.qr_download.start', {
+      requestId: req.requestId,
+      attendanceId,
+      registrationNumber,
+      adminId: req.admin?._id,
+    });
     if (attendanceId) {
       attendance = await Attendance.findById(attendanceId)
         .populate('registrationId', 'userId registrationNumber');
@@ -157,9 +192,18 @@ router.get('/qr-download/:attendanceId/:registrationNumber?', authenticateAdmin,
       'Content-Disposition': `attachment; filename="${filename}_QR.png"`,
       'Content-Length': qrBuffer.length
     });
+    logger.info('attendance.qr_download.success', {
+      requestId: req.requestId,
+      attendanceId: attendance._id,
+      filename,
+    });
     res.send(qrBuffer);
   } catch (error) {
-    console.error('QR download error:', error);
+    logger.error('attendance.qr_download.error', {
+      requestId: req.requestId,
+      attendanceId: req.params.attendanceId,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'QR generation failed' });
   }
 });
@@ -173,6 +217,7 @@ router.post('/scan/check', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ message: 'QR code required' });
     }
 
+    logger.info('attendance.scan_check.start', { requestId: req.requestId, adminId: req.admin?._id });
     const attendance = await Attendance.findOne({ 
       qrCodeData: qrCode.trim(),
       isActive: true 
@@ -207,7 +252,11 @@ router.post('/scan/check', authenticateAdmin, async (req, res) => {
       maxScans: 10, 
     });
   } catch (error) {
-    console.error('Scan check error:', error);
+    logger.error('attendance.scan_check.error', {
+      requestId: req.requestId,
+      adminId: req.admin?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Scan validation failed' });
   }
 });
@@ -217,6 +266,7 @@ router.post('/scan/mark', authenticateAdmin, async (req, res) => {
   try {
     const { qrCode, count = 1, location = 'Main Gate', notes = '' } = req.body;
     
+    logger.info('attendance.scan_mark.start', { requestId: req.requestId, adminId: req.admin?._id });
     const attendance = await Attendance.findOne({ 
       qrCodeData: qrCode.trim(),
       isActive: true 
@@ -242,6 +292,11 @@ router.post('/scan/mark', authenticateAdmin, async (req, res) => {
       { path: 'scanHistory.scannedBy', select: 'name email' }
     ]);
 
+    logger.info('attendance.scan_mark.success', {
+      requestId: req.requestId,
+      attendanceId: attendance._id,
+      totalScans: attendance.totalScans,
+    });
     res.json({
       message: `${count} entry(s) marked successfully`,
       totalScans: attendance.totalScans,
@@ -250,7 +305,11 @@ router.post('/scan/mark', authenticateAdmin, async (req, res) => {
       scanHistory: attendance.scanHistory,
     });
   } catch (error) {
-    console.error('Mark attendance error:', error);
+    logger.error('attendance.scan_mark.error', {
+      requestId: req.requestId,
+      adminId: req.admin?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Failed to mark attendance' });
   }
 });
@@ -265,6 +324,11 @@ router.post('/scan/mark', authenticateAdmin, async (req, res) => {
 
 router.get('/qr-download/:registrationId', authenticateAdmin, async (req, res) => {
   try {
+    logger.info('attendance.qr_download_legacy.start', {
+      requestId: req.requestId,
+      registrationId: req.params.registrationId,
+      adminId: req.admin?._id,
+    });
     const registration = await Registration.findById(req.params.registrationId);
     if (!registration) {
       return res.status(404).json({ message: 'Registration not found' });
@@ -294,9 +358,17 @@ router.get('/qr-download/:registrationId', authenticateAdmin, async (req, res) =
       'Pragma': 'no-cache'
     });
 
+    logger.info('attendance.qr_download_legacy.success', {
+      requestId: req.requestId,
+      registrationId: registration._id,
+    });
     res.send(qrBuffer);
   } catch (error) {
-    console.error('QR Download Error:', error);
+    logger.error('attendance.qr_download_legacy.error', {
+      requestId: req.requestId,
+      registrationId: req.params.registrationId,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'QR generation failed' });
   }
 });
@@ -304,6 +376,7 @@ router.get('/qr-download/:registrationId', authenticateAdmin, async (req, res) =
 
 router.get('/my-qr', authenticateUser, async (req, res) => {
   try {
+    logger.info('attendance.my_qr_legacy.start', { requestId: req.requestId, userId: req.user?._id });
     const registration = await Registration.findOne({ 
       userId: req.user._id, 
       paymentStatus: 'PAID' 
@@ -325,6 +398,11 @@ router.get('/my-qr', authenticateUser, async (req, res) => {
       color: { dark: '#0d47a1', light: '#ffffff' }
     });
 
+    logger.info('attendance.my_qr_legacy.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      registrationId: registration._id,
+    });
     res.json({
       qrData: attendance.qrCodeData,
       qrUrl: qrDataUrl,
@@ -332,7 +410,11 @@ router.get('/my-qr', authenticateUser, async (req, res) => {
       totalScans: attendance.totalScans
     });
   } catch (error) {
-    console.error('My QR error:', error);
+    logger.error('attendance.my_qr_legacy.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'QR fetch failed' });
   }
 });
@@ -340,6 +422,11 @@ router.get('/my-qr', authenticateUser, async (req, res) => {
 
 router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) => {
   try {
+    logger.info('attendance.generate_qr_legacy.start', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      registrationId: req.params.registrationId,
+    });
     const registration = await Registration.findOne({
       _id: req.params.registrationId,
       userId: req.user._id,
@@ -353,6 +440,11 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
     let attendance = await Attendance.findOne({ registrationId: registration._id });
     if (attendance) {
       const qrUrl = await QRCode.toDataURL(attendance.qrCodeData, { width: 512 });
+      logger.info('attendance.generate_qr_legacy.already_exists', {
+        requestId: req.requestId,
+        userId: req.user?._id,
+        registrationId: registration._id,
+      });
       return res.json({ 
         message: 'QR already exists',
         qrData: attendance.qrCodeData, 
@@ -368,13 +460,24 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
 
     const qrUrl = await QRCode.toDataURL(registration.registrationNumber, { width: 512 });
     
+    logger.info('attendance.generate_qr_legacy.success', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      registrationId: registration._id,
+      attendanceId: attendance._id,
+    });
     res.json({ 
       message: 'QR generated successfully',
       qrData: registration.registrationNumber, 
       qrUrl 
     });
   } catch (error) {
-    console.error('QR generation error:', error);
+    logger.error('attendance.generate_qr_legacy.error', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      registrationId: req.params.registrationId,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'QR generation failed' });
   }
 });
@@ -387,6 +490,10 @@ router.get('/qr-bulk-pdf', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Registration IDs required' });
     }
 
+    logger.info('attendance.qr_bulk_pdf.start', {
+      requestId: req.requestId,
+      adminId: req.admin?._id,
+    });
     const ids = registrationIds.split(',');
     const registrations = await Registration.find({
       _id: { $in: ids }
@@ -450,9 +557,16 @@ router.get('/qr-bulk-pdf', authenticateAdmin, async (req, res) => {
       'Cache-Control': 'no-cache'
     });
     
+    logger.info('attendance.qr_bulk_pdf.success', {
+      requestId: req.requestId,
+      count: registrations.length,
+    });
     res.send(doc.output('arraybuffer'));
   } catch (error) {
-    console.error('Bulk PDF error:', error);
+    logger.error('attendance.qr_bulk_pdf.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'PDF generation failed' });
   }
 });
@@ -460,6 +574,11 @@ router.get('/qr-bulk-pdf', authenticateAdmin, async (req, res) => {
 
 router.get('/qr-details/:registrationId', authenticateAdmin, async (req, res) => {
   try {
+    logger.info('attendance.qr_details.start', {
+      requestId: req.requestId,
+      registrationId: req.params.registrationId,
+      adminId: req.admin?._id,
+    });
     const registration = await Registration.findById(req.params.registrationId)
       .populate('userId', 'name email phone role membershipId');
     
@@ -471,6 +590,10 @@ router.get('/qr-details/:registrationId', authenticateAdmin, async (req, res) =>
 
     const qrUrl = await QRCode.toDataURL(attendance.qrCodeData, { width: 512 });
     
+    logger.info('attendance.qr_details.success', {
+      requestId: req.requestId,
+      registrationId: registration._id,
+    });
     res.json({
       registration,
       attendance,
@@ -478,6 +601,11 @@ router.get('/qr-details/:registrationId', authenticateAdmin, async (req, res) =>
       qrData: attendance.qrData
     });
   } catch (error) {
+    logger.error('attendance.qr_details.error', {
+      requestId: req.requestId,
+      registrationId: req.params.registrationId,
+      message: error?.message || error,
+    });
     res.status(500).json({ message: 'Details fetch failed' });
   }
 });
