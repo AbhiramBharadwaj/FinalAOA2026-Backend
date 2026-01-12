@@ -11,7 +11,7 @@ const router = express.Router();
 
 router.get('/my-qr', authenticateUser, async (req, res) => {
   try {
-    logger.info('attendance.my_qr.start', { requestId: req.requestId, userId: req.user?._id });
+    logger.debug('attendance.my_qr.start', { requestId: req.requestId, userId: req.user?._id });
     const registration = await Registration.findOne({ 
       userId: req.user._id,
       paymentStatus: 'PAID'
@@ -376,7 +376,7 @@ router.get('/qr-download/:registrationId', authenticateAdmin, async (req, res) =
 
 router.get('/my-qr', authenticateUser, async (req, res) => {
   try {
-    logger.info('attendance.my_qr_legacy.start', { requestId: req.requestId, userId: req.user?._id });
+    logger.debug('attendance.my_qr_legacy.start', { requestId: req.requestId, userId: req.user?._id });
     const registration = await Registration.findOne({ 
       userId: req.user._id, 
       paymentStatus: 'PAID' 
@@ -398,7 +398,7 @@ router.get('/my-qr', authenticateUser, async (req, res) => {
       color: { dark: '#0d47a1', light: '#ffffff' }
     });
 
-    logger.info('attendance.my_qr_legacy.success', {
+    logger.debug('attendance.my_qr_legacy.success', {
       requestId: req.requestId,
       userId: req.user?._id,
       registrationId: registration._id,

@@ -216,7 +216,7 @@ router.post(
 
 router.get('/my-registration', authenticateUser, async (req, res) => {
   try {
-    logger.info('registration.fetch_self.start', { requestId: req.requestId, userId: req.user?._id });
+    logger.debug('registration.fetch_self.start', { requestId: req.requestId, userId: req.user?._id });
     const registration = await Registration.findOne({ userId: req.user._id })
       .populate('userId', 'name email role membershipId');
 
@@ -224,7 +224,7 @@ router.get('/my-registration', authenticateUser, async (req, res) => {
       return res.status(404).json({ message: 'No registration found' });
     }
 
-    logger.info('registration.fetch_self.success', {
+    logger.debug('registration.fetch_self.success', {
       requestId: req.requestId,
       userId: req.user?._id,
       registrationId: registration._id,
@@ -243,7 +243,7 @@ router.get('/my-registration', authenticateUser, async (req, res) => {
 
 router.get('/pricing', authenticateUser, async (req, res) => {
   try {
-    logger.info('registration.pricing.start', { requestId: req.requestId, userId: req.user?._id });
+    logger.debug('registration.pricing.start', { requestId: req.requestId, userId: req.user?._id });
     const bookingPhase = getBookingPhase();
     const normalizedRole = normalizeRole(req.user.role);
 
@@ -298,7 +298,7 @@ router.get('/pricing', authenticateUser, async (req, res) => {
         aoaCourseLimit: 40,
       },
     });
-    logger.info('registration.pricing.success', {
+    logger.debug('registration.pricing.success', {
       requestId: req.requestId,
       userId: req.user?._id,
       bookingPhase,

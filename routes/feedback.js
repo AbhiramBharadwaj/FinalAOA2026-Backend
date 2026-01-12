@@ -76,14 +76,14 @@ router.post('/submit', authenticateUser, requireProfileComplete, async (req, res
 
 router.get('/my-feedback', authenticateUser, async (req, res) => {
   try {
-    logger.info('feedback.fetch_self.start', { requestId: req.requestId, userId: req.user?._id });
+    logger.debug('feedback.fetch_self.start', { requestId: req.requestId, userId: req.user?._id });
     const feedback = await Feedback.findOne({ userId: req.user._id });
     
     if (!feedback) {
       return res.status(404).json({ message: 'No feedback found' });
     }
 
-    logger.info('feedback.fetch_self.success', {
+    logger.debug('feedback.fetch_self.success', {
       requestId: req.requestId,
       userId: req.user?._id,
       feedbackId: feedback._id,
@@ -102,12 +102,12 @@ router.get('/my-feedback', authenticateUser, async (req, res) => {
 
 router.get('/all', authenticateAdmin, async (req, res) => {
   try {
-    logger.info('feedback.list.start', { requestId: req.requestId, adminId: req.admin?._id });
+    logger.debug('feedback.list.start', { requestId: req.requestId, adminId: req.admin?._id });
     const feedback = await Feedback.find()
       .populate('userId', 'name email role')
       .sort({ createdAt: -1 });
 
-    logger.info('feedback.list.success', { requestId: req.requestId, count: feedback.length });
+    logger.debug('feedback.list.success', { requestId: req.requestId, count: feedback.length });
     res.json(feedback);
   } catch (error) {
     logger.error('feedback.list.error', { requestId: req.requestId, message: error?.message || error });
@@ -118,7 +118,7 @@ router.get('/all', authenticateAdmin, async (req, res) => {
 
 router.get('/analytics', authenticateAdmin, async (req, res) => {
   try {
-    logger.info('feedback.analytics.start', { requestId: req.requestId, adminId: req.admin?._id });
+    logger.debug('feedback.analytics.start', { requestId: req.requestId, adminId: req.admin?._id });
     const totalFeedback = await Feedback.countDocuments();
     
     const analytics = await Feedback.aggregate([
@@ -147,7 +147,7 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
     result.totalFeedback = totalFeedback;
     result.recommendationRate = totalFeedback > 0 ? (result.totalRecommend / totalFeedback) * 100 : 0;
 
-    logger.info('feedback.analytics.success', { requestId: req.requestId, totalFeedback });
+    logger.debug('feedback.analytics.success', { requestId: req.requestId, totalFeedback });
     res.json(result);
   } catch (error) {
     logger.error('feedback.analytics.error', { requestId: req.requestId, message: error?.message || error });

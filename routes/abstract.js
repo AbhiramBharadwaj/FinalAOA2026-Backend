@@ -94,7 +94,7 @@ router.post('/submit', authenticateUser, requireProfileComplete, upload.single('
 
 router.get('/my-abstract', authenticateUser, async (req, res) => {
   try {
-    logger.info('abstract.fetch_self.start', { requestId: req.requestId, userId: req.user?._id });
+    logger.debug('abstract.fetch_self.start', { requestId: req.requestId, userId: req.user?._id });
     const abstract = await Abstract.findOne({ userId: req.user._id })
       .populate('userId', 'name email')
       .populate('reviewedBy', 'name');
@@ -103,7 +103,7 @@ router.get('/my-abstract', authenticateUser, async (req, res) => {
       return res.status(404).json({ message: 'No abstract found' });
     }
 
-    logger.info('abstract.fetch_self.success', {
+    logger.debug('abstract.fetch_self.success', {
       requestId: req.requestId,
       userId: req.user?._id,
       abstractId: abstract._id,
@@ -125,13 +125,13 @@ router.get('/all', authenticateAdmin, async (req, res) => {
     const { status } = req.query;
     const filter = status ? { status } : {};
     
-    logger.info('abstract.list.start', { requestId: req.requestId, status: status || 'ALL' });
+    logger.debug('abstract.list.start', { requestId: req.requestId, status: status || 'ALL' });
     const abstracts = await Abstract.find(filter)
       .populate('userId', 'name email role')
       .populate('reviewedBy', 'name')
       .sort({ createdAt: -1 });
 
-    logger.info('abstract.list.success', { requestId: req.requestId, count: abstracts.length });
+    logger.debug('abstract.list.success', { requestId: req.requestId, count: abstracts.length });
     res.json(abstracts);
   } catch (error) {
     logger.error('abstract.list.error', { requestId: req.requestId, message: error?.message || error });

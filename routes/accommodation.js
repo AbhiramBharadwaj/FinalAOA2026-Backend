@@ -9,12 +9,12 @@ const router = express.Router();
 
 router.get('/my-bookings', authenticateUser, async (req, res) => {
   try {
-    logger.info('accommodation.bookings.self.start', { requestId: req.requestId, userId: req.user?._id });
+    logger.debug('accommodation.bookings.self.start', { requestId: req.requestId, userId: req.user?._id });
     const bookings = await AccommodationBooking.find({ userId: req.user._id })
       .populate('accommodationId')
       .sort({ createdAt: -1 });
 
-    logger.info('accommodation.bookings.self.success', {
+    logger.debug('accommodation.bookings.self.success', {
       requestId: req.requestId,
       userId: req.user?._id,
       count: bookings.length,
@@ -33,9 +33,9 @@ router.get('/my-bookings', authenticateUser, async (req, res) => {
 
 router.get('/', async (req, res) => {
   try {
-    logger.info('accommodation.list.start', { requestId: req.requestId });
+    logger.debug('accommodation.list.start', { requestId: req.requestId });
     const accommodations = await Accommodation.find({ isActive: true });
-    logger.info('accommodation.list.success', { requestId: req.requestId, count: accommodations.length });
+    logger.debug('accommodation.list.success', { requestId: req.requestId, count: accommodations.length });
     res.json(accommodations);
   } catch (error) {
     logger.error('accommodation.list.error', { requestId: req.requestId, message: error?.message || error });
@@ -46,12 +46,12 @@ router.get('/', async (req, res) => {
 
 router.get('/:id', async (req, res) => {
   try {
-    logger.info('accommodation.get.start', { requestId: req.requestId, accommodationId: req.params.id });
+    logger.debug('accommodation.get.start', { requestId: req.requestId, accommodationId: req.params.id });
     const accommodation = await Accommodation.findById(req.params.id);
     if (!accommodation) {
       return res.status(404).json({ message: 'Accommodation not found' });
     }
-    logger.info('accommodation.get.success', { requestId: req.requestId, accommodationId: req.params.id });
+    logger.debug('accommodation.get.success', { requestId: req.requestId, accommodationId: req.params.id });
     res.json(accommodation);
   } catch (error) {
     logger.error('accommodation.get.error', {

@@ -37,14 +37,10 @@ app.use((req, res, next) => {
     : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   req.requestId = requestId;
   const start = Date.now();
-  logger.info('request.start', {
-    requestId,
-    method: req.method,
-    path: req.originalUrl,
-    ip: req.ip,
-  });
   res.on('finish', () => {
-    logger.info('request.end', {
+    const shouldLog = req.method !== 'GET' || res.statusCode >= 400;
+    if (!shouldLog) return;
+    logger.info('Request finished', {
       requestId,
       method: req.method,
       path: req.originalUrl,
