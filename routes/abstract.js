@@ -36,7 +36,7 @@ const upload = multer({
 
 router.post('/submit', authenticateUser, requireProfileComplete, upload.single('abstractFile'), async (req, res) => {
   try {
-    logger.info('abstract.submit.start', { requestId: req.requestId, userId: req.user?._id });
+    logger.info(`${req.actorName || 'User'} is submitting an abstract.`);
     const { title, authors, category } = req.body;
 
     if (!req.file) {
@@ -61,12 +61,7 @@ router.post('/submit', authenticateUser, requireProfileComplete, upload.single('
 
     await abstract.populate('userId', 'name email');
 
-    logger.info('abstract.submit.success', {
-      requestId: req.requestId,
-      userId: req.user?._id,
-      abstractId: abstract._id,
-      title,
-    });
+    logger.info(`${req.actorName || 'User'} submitted an abstract.`);
     res.status(201).json({
       message: 'Abstract submitted successfully',
       abstract
@@ -75,18 +70,10 @@ router.post('/submit', authenticateUser, requireProfileComplete, upload.single('
     try {
       await sendAbstractSubmittedEmail(abstract);
     } catch (emailError) {
-      logger.warn('abstract.submit.email_failed', {
-        requestId: req.requestId,
-        abstractId: abstract._id,
-        message: emailError?.message || emailError,
-      });
+      logger.warn('Abstract email failed to send.', { message: emailError?.message || emailError });
     }
   } catch (error) {
-    logger.error('abstract.submit.error', {
-      requestId: req.requestId,
-      userId: req.user?._id,
-      message: error?.message || error,
-    });
+    logger.error('Abstract submission failed.', { message: error?.message || error });
     res.status(500).json({ message: 'Server error during abstract submission' });
   }
 });
@@ -145,12 +132,7 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
     const { status, reviewComments } = req.body;
     const abstractId = req.params.id;
 
-    logger.info('abstract.review.start', {
-      requestId: req.requestId,
-      abstractId,
-      adminId: req.admin?._id,
-      status,
-    });
+    logger.info(`${req.actorName || 'Admin'} reviewed an abstract with status ${status}.`);
     const abstract = await Abstract.findByIdAndUpdate(
       abstractId,
       {
@@ -166,11 +148,7 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
       return res.status(404).json({ message: 'Abstract not found' });
     }
 
-    logger.info('abstract.review.success', {
-      requestId: req.requestId,
-      abstractId: abstract._id,
-      status: abstract.status,
-    });
+    logger.info(`${req.actorName || 'Admin'} saved the abstract review.`);
     res.json({
       message: 'Abstract reviewed successfully',
       abstract
@@ -181,18 +159,10 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
         await sendAbstractReviewEmail(abstract);
       }
     } catch (emailError) {
-      logger.warn('abstract.review.email_failed', {
-        requestId: req.requestId,
-        abstractId: abstract._id,
-        message: emailError?.message || emailError,
-      });
+      logger.warn('Abstract review email failed to send.', { message: emailError?.message || emailError });
     }
   } catch (error) {
-    logger.error('abstract.review.error', {
-      requestId: req.requestId,
-      abstractId: req.params.id,
-      message: error?.message || error,
-    });
+    logger.error('Abstract review failed.', { message: error?.message || error });
     res.status(500).json({ message: 'Server error during abstract review' });
   }
 });

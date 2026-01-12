@@ -8,7 +8,7 @@ const router = express.Router();
 
 router.post('/submit', authenticateUser, requireProfileComplete, async (req, res) => {
   try {
-    logger.info('feedback.submit.start', { requestId: req.requestId, userId: req.user?._id });
+    logger.info(`${req.actorName || 'User'} is submitting feedback.`);
     
     const now = new Date();
     const feedbackOpenDate = new Date('2024-11-01');
@@ -54,21 +54,13 @@ router.post('/submit', authenticateUser, requireProfileComplete, async (req, res
 
     await feedback.populate('userId', 'name email');
 
-    logger.info('feedback.submit.success', {
-      requestId: req.requestId,
-      userId: req.user?._id,
-      feedbackId: feedback._id,
-    });
+    logger.info(`${req.actorName || 'User'} submitted feedback.`);
     res.status(201).json({
       message: 'Feedback submitted successfully',
       feedback
     });
   } catch (error) {
-    logger.error('feedback.submit.error', {
-      requestId: req.requestId,
-      userId: req.user?._id,
-      message: error?.message || error,
-    });
+    logger.error('Feedback submission failed.', { message: error?.message || error });
     res.status(500).json({ message: 'Server error during feedback submission' });
   }
 });

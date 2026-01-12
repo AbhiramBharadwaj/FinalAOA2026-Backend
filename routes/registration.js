@@ -29,7 +29,7 @@ router.post(
   upload.none(),
   async (req, res) => {
     try {
-      logger.info('registration.upsert.start', { requestId: req.requestId, userId: req.user?._id });
+      logger.info(`${req.actorName || 'User'} is checking registration options.`);
       const {
         selectedWorkshop,
         accompanyingPersons = '0',
@@ -65,6 +65,17 @@ router.post(
           message: 'AOA members can choose either Workshop or AOA Certified Course',
         });
       }
+
+      const addOnSelections = [];
+      if (wantsWorkshop) {
+        addOnSelections.push(
+          selectedWorkshop ? `Workshop (${selectedWorkshop})` : 'Workshop'
+        );
+      }
+      if (wantsAoaCourse) addOnSelections.push('AOA Certified Course');
+      if (wantsLifeMembership) addOnSelections.push('AOA Life Membership');
+      const selectionText = addOnSelections.length ? addOnSelections.join(', ') : 'no add-ons';
+      logger.info(`${req.actorName || 'User'} selected ${selectionText} and proceeded to checkout.`);
 
       
       let registration = await Registration.findOne({ userId: req.user._id });
@@ -165,12 +176,9 @@ router.post(
         
         Object.assign(registration, updateData);
         await registration.save();
-        logger.info('registration.updated', {
-          requestId: req.requestId,
-          userId: req.user?._id,
-          registrationId: registration._id,
-          totalAmount: registration.totalAmount,
-        });
+        logger.info(
+          `${req.actorName || 'User'} updated the registration. Total amount is INR ${registration.totalAmount}.`
+        );
         res.json({
           message: 'Registration updated successfully',
           registration,
@@ -182,12 +190,9 @@ router.post(
           ...updateData,
         });
         await registration.save();
-        logger.info('registration.created', {
-          requestId: req.requestId,
-          userId: req.user?._id,
-          registrationId: registration._id,
-          totalAmount: registration.totalAmount,
-        });
+        logger.info(
+          `${req.actorName || 'User'} created a registration. Total amount is INR ${registration.totalAmount}.`
+        );
         res.status(201).json({
           message: 'Registration created successfully',
           registration,
@@ -197,11 +202,7 @@ router.post(
       await registration.populate('userId', 'name email role membershipId');
 
     } catch (error) {
-      logger.error('registration.upsert.error', {
-        requestId: req.requestId,
-        userId: req.user?._id,
-        message: error?.message || error,
-      });
+      logger.error('Registration update failed.', { message: error?.message || error });
       if (error.name === 'ValidationError') {
         return res.status(400).json({
           message: 'Validation failed',

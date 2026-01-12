@@ -66,19 +66,12 @@ const sendViaResend = async ({ to, subject, text, html, attachments }) => {
 
 const sendEmail = async ({ to, subject, text, html, attachments }) => {
   const recipients = Array.isArray(to) ? to : [to];
-  logger.info('email.send.start', {
-    to: recipients,
-    subject,
-    provider: 'resend',
-    attachments: attachments?.length || 0,
-  });
+  logger.info(`Sending email to ${recipients.join(', ')} with subject "${subject}".`);
   try {
     await sendViaResend({ to, subject, text, html, attachments });
-    logger.info('email.send.success', { to: recipients, subject });
+    logger.info(`Email sent to ${recipients.join(', ')} with subject "${subject}".`);
   } catch (error) {
-    logger.error('email.send.failure', {
-      to: recipients,
-      subject,
+    logger.error(`Failed to send email to ${recipients.join(', ')}.`, {
       message: error?.message || error,
     });
     throw error;

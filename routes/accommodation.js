@@ -66,7 +66,7 @@ router.get('/:id', async (req, res) => {
 
 router.post('/book', authenticateUser, requireProfileComplete, async (req, res) => {
   try {
-    logger.info('accommodation.book.start', { requestId: req.requestId, userId: req.user?._id });
+    logger.info(`${req.actorName || 'User'} started an accommodation booking.`);
     const {
       accommodationId,
       checkInDate,
@@ -114,23 +114,15 @@ router.post('/book', authenticateUser, requireProfileComplete, async (req, res) 
 
     await booking.populate(['accommodationId', 'userId']);
 
-    logger.info('accommodation.book.success', {
-      requestId: req.requestId,
-      userId: req.user?._id,
-      bookingId: booking._id,
-      accommodationId,
-      totalAmount,
-    });
+    logger.info(
+      `${req.actorName || 'User'} booked ${accommodation.name} for INR ${totalAmount}.`
+    );
     res.status(201).json({
       message: 'Booking created successfully',
       booking,
     });
   } catch (error) {
-    logger.error('accommodation.book.error', {
-      requestId: req.requestId,
-      userId: req.user?._id,
-      message: error?.message || error,
-    });
+    logger.error('Accommodation booking failed.', { message: error?.message || error });
     res.status(500).json({ message: 'Server error during booking' });
   }
 });

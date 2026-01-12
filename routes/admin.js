@@ -15,6 +15,7 @@ const router = express.Router();
 // Enhanced Dashboard with more comprehensive data
 router.get('/dashboard', authenticateAdmin, async (req, res) => {
   try {
+    logger.info(`${req.actorName || 'Admin'} opened the admin dashboard.`);
     const today = new Date();
     const yesterday = new Date(today);
     yesterday.setDate(yesterday.getDate() - 1);

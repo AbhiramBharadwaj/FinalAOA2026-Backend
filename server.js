@@ -2,7 +2,6 @@ import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
 import mongoose from 'mongoose';
-import crypto from 'crypto';
 import authRoutes from './routes/auth.js';
 import registrationRoutes from './routes/registration.js';
 import accommodationRoutes from './routes/accommodation.js';
@@ -32,21 +31,13 @@ app.options('*', cors());
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 app.use((req, res, next) => {
-  const requestId = crypto.randomUUID
-    ? crypto.randomUUID()
-    : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-  req.requestId = requestId;
   const start = Date.now();
   res.on('finish', () => {
     const shouldLog = req.method !== 'GET' || res.statusCode >= 400;
     if (!shouldLog) return;
-    logger.info('Request finished', {
-      requestId,
-      method: req.method,
-      path: req.originalUrl,
-      statusCode: res.statusCode,
-      durationMs: Date.now() - start,
-    });
+    logger.info(
+      `Request finished: ${req.method} ${req.originalUrl} returned ${res.statusCode} in ${Date.now() - start}ms.`
+    );
   });
   next();
 });
@@ -62,15 +53,11 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/health', healthRoutes);
 
 mongoose.connect("mongodb+srv://bhaskarAntoty123:MQEJ1W9gtKD547hy@bhaskarantony.wagpkay.mongodb.net/AOA1?retryWrites=true&w=majority")
-  .then(() => logger.info('mongo.connected'))
-  .catch(err => logger.error('mongo.connection_error', { message: err?.message || err }));
+  .then(() => logger.info('MongoDB connected.'))
+  .catch(err => logger.error('MongoDB connection error.', { message: err?.message || err }));
 
 app.use((err, req, res, next) => {
-  logger.error('request.unhandled_error', {
-    requestId: req.requestId,
-    message: err?.message || 'Unknown error',
-    stack: err?.stack,
-  });
+  logger.error('Server error.', { message: err?.message || 'Unknown error' });
   if (res.headersSent) {
     return next(err);
   }
@@ -78,5 +65,5 @@ app.use((err, req, res, next) => {
 });
 
 app.listen(PORT, () => {
-  logger.info('server.started', { port: PORT });
+  logger.info(`Server started on port ${PORT}.`);
 });

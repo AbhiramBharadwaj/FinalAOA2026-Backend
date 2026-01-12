@@ -55,11 +55,7 @@ router.get('/my-qr', authenticateUser, async (req, res) => {
 
 router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) => {
   try {
-    logger.info('attendance.generate_qr.start', {
-      requestId: req.requestId,
-      userId: req.user?._id,
-      registrationId: req.params.registrationId,
-    });
+    logger.info(`${req.actorName || 'User'} is generating a QR code.`);
     const registration = await Registration.findOne({
       _id: req.params.registrationId,
       userId: req.user._id,
@@ -80,11 +76,7 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
         margin: 1,
         color: { dark: '#0d47a1', light: '#ffffff' }
       });
-      logger.info('attendance.generate_qr.already_exists', {
-        requestId: req.requestId,
-        userId: req.user?._id,
-        registrationId: registration._id,
-      });
+      logger.info(`${req.actorName || 'User'} already has a QR code.`);
       return res.json({ 
         message: 'QR already generated',
         qrData: attendance.qrCodeData,
@@ -109,12 +101,7 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
 
     await attendanceData.populate('registrationId', 'userId registrationNumber registrationType paymentStatus');
     
-    logger.info('attendance.generate_qr.success', {
-      requestId: req.requestId,
-      userId: req.user?._id,
-      registrationId: registration._id,
-      attendanceId: attendanceData._id,
-    });
+    logger.info(`${req.actorName || 'User'} generated a QR code successfully.`);
     res.status(201).json({
       message: 'QR code generated successfully',
       qrData,
@@ -122,12 +109,7 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
       attendance: attendanceData,
     });
   } catch (error) {
-    logger.error('attendance.generate_qr.error', {
-      requestId: req.requestId,
-      userId: req.user?._id,
-      registrationId: req.params.registrationId,
-      message: error?.message || error,
-    });
+    logger.error('QR code generation failed.', { message: error?.message || error });
     res.status(500).json({ message: 'Failed to generate QR code' });
   }
 });

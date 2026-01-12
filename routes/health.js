@@ -20,16 +20,12 @@ router.get('/email', requireHealthToken, async (req, res) => {
     return res.status(400).json({ message: 'Email test recipient not configured' });
   }
   try {
-    logger.info('health.email_test.start', { requestId: req.requestId, to });
+    logger.info(`Sending test email to ${to}.`);
     await sendTestEmail(to);
-    logger.info('health.email_test.success', { requestId: req.requestId, to });
+    logger.info(`Test email sent to ${to}.`);
     return res.json({ message: 'Email sent', to });
   } catch (error) {
-    logger.error('health.email_test.error', {
-      requestId: req.requestId,
-      to,
-      message: error?.message || error,
-    });
+    logger.error('Test email failed to send.', { message: error?.message || error });
     return res.status(500).json({
       message: 'Email send failed',
       error: error?.message || 'Unknown error',
