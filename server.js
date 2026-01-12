@@ -16,7 +16,17 @@ dotenv.config();
 const app = express();
 const PORT = 5050;
 
-app.use(cors());
+// Replace app.use(cors()) with this:
+app.use(cors({
+  origin: ["https://www.aoacon2026.com", "https://aoacon2026.com"],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  credentials: true, // Allow cookies/auth headers if needed
+  allowedHeaders: ["Content-Type", "Authorization"]
+}));
+
+// Add this right after to handle the browser's initial "OPTIONS" check
+app.options('*', cors());
+
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 
