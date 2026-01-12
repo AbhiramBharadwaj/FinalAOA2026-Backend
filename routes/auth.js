@@ -3,9 +3,10 @@ import jwt from 'jsonwebtoken';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import crypto from 'crypto';
 import User from '../models/User.js';
 import Admin from '../models/Admin.js';
-import { sendRegistrationEmail } from '../utils/email.js';
+import { sendPasswordResetEmail, sendRegistrationEmail } from '../utils/email.js';
 import { authenticateUser } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -34,6 +35,19 @@ const hasValue = (value) => {
 };
 
 const normalizeString = (value) => (typeof value === 'string' ? value.trim() : value);
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000;
+
+const createResetToken = () => {
+  const rawToken = crypto.randomBytes(32).toString('hex');
+  const tokenHash = crypto.createHash('sha256').update(rawToken).digest('hex');
+  return {
+    rawToken,
+    tokenHash,
+    expiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS)
+  };
+};
+
+const getFrontendUrl = () => process.env.FRONTEND_URL || 'http://localhost:5173';
 
 const collegeLetterDir = 'uploads/college-letters';
 const collegeLetterStorage = multer.diskStorage({
@@ -212,6 +226,74 @@ router.post('/login', async (req, res) => {
   }
 });
 
+router.post('/forgot-password', async (req, res) => {
+  try {
+    const email = normalizeString(req.body.email)?.toLowerCase();
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+
+    const user = await User.findOne({ email });
+    if (!user) {
+      return res.json({ message: 'If this email is registered, a reset link was sent.' });
+    }
+
+    const { rawToken, tokenHash, expiresAt } = createResetToken();
+    user.resetPasswordToken = tokenHash;
+    user.resetPasswordExpires = expiresAt;
+    await user.save();
+
+    const resetLink = `${getFrontendUrl()}/reset-password?token=${rawToken}&email=${encodeURIComponent(email)}`;
+    try {
+      await sendPasswordResetEmail({
+        email: user.email,
+        name: user.name,
+        resetLink,
+        isAdmin: false
+      });
+    } catch (emailError) {
+      console.error('Password reset email error:', emailError?.message || emailError);
+    }
+
+    return res.json({ message: 'If this email is registered, a reset link was sent.' });
+  } catch (error) {
+    console.error('Forgot password error:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.post('/reset-password', async (req, res) => {
+  try {
+    const email = normalizeString(req.body.email)?.toLowerCase();
+    const { token, password } = req.body;
+
+    if (!email || !token || !password) {
+      return res.status(400).json({ message: 'Email, token, and password are required' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const user = await User.findOne({
+      email,
+      resetPasswordToken: tokenHash,
+      resetPasswordExpires: { $gt: new Date() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: 'Invalid or expired reset link' });
+    }
+
+    user.password = password;
+    user.resetPasswordToken = undefined;
+    user.resetPasswordExpires = undefined;
+    await user.save();
+
+    return res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Reset password error:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
 router.get('/me', authenticateUser, async (req, res) => {
   if (req.isAdmin) {
     return res.status(403).json({ message: 'Admins do not have a user profile' });
@@ -350,6 +432,74 @@ router.post('/admin/login', async (req, res) => {
   } catch (error) {
     console.error('Admin login error:', error);
     res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.post('/admin/forgot-password', async (req, res) => {
+  try {
+    const email = normalizeString(req.body.email)?.toLowerCase();
+    if (!email) {
+      return res.status(400).json({ message: 'Email is required' });
+    }
+
+    const admin = await Admin.findOne({ email });
+    if (!admin) {
+      return res.json({ message: 'If this email is registered, a reset link was sent.' });
+    }
+
+    const { rawToken, tokenHash, expiresAt } = createResetToken();
+    admin.resetPasswordToken = tokenHash;
+    admin.resetPasswordExpires = expiresAt;
+    await admin.save();
+
+    const resetLink = `${getFrontendUrl()}/admin/reset-password?token=${rawToken}&email=${encodeURIComponent(email)}`;
+    try {
+      await sendPasswordResetEmail({
+        email: admin.email,
+        name: admin.name,
+        resetLink,
+        isAdmin: true
+      });
+    } catch (emailError) {
+      console.error('Admin password reset email error:', emailError?.message || emailError);
+    }
+
+    return res.json({ message: 'If this email is registered, a reset link was sent.' });
+  } catch (error) {
+    console.error('Admin forgot password error:', error);
+    return res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.post('/admin/reset-password', async (req, res) => {
+  try {
+    const email = normalizeString(req.body.email)?.toLowerCase();
+    const { token, password } = req.body;
+
+    if (!email || !token || !password) {
+      return res.status(400).json({ message: 'Email, token, and password are required' });
+    }
+
+    const tokenHash = crypto.createHash('sha256').update(token).digest('hex');
+    const admin = await Admin.findOne({
+      email,
+      resetPasswordToken: tokenHash,
+      resetPasswordExpires: { $gt: new Date() }
+    });
+
+    if (!admin) {
+      return res.status(400).json({ message: 'Invalid or expired reset link' });
+    }
+
+    admin.password = password;
+    admin.resetPasswordToken = undefined;
+    admin.resetPasswordExpires = undefined;
+    await admin.save();
+
+    return res.json({ message: 'Password updated successfully' });
+  } catch (error) {
+    console.error('Admin reset password error:', error);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 

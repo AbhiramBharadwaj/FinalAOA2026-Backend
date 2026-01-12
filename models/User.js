@@ -96,6 +96,12 @@ const userSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  resetPasswordToken: {
+    type: String
+  },
+  resetPasswordExpires: {
+    type: Date
+  },
   isProfileComplete: {
     type: Boolean,
     default: false
@@ -135,6 +141,8 @@ userSchema.set('toJSON', {
     delete ret._id;
     delete ret.__v;
     delete ret.password;
+    delete ret.resetPasswordToken;
+    delete ret.resetPasswordExpires;
   }
 });
 

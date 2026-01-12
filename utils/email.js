@@ -84,6 +84,44 @@ const wrapEmail = (title, bodyHtml) => `
   </div>
 `;
 
+export const sendPasswordResetEmail = async ({ email, name, resetLink, isAdmin = false }) => {
+  const title = isAdmin ? 'Admin Password Reset' : 'Password Reset';
+  const subject = `AOACON 2026 ${isAdmin ? 'Admin ' : ''}Password Reset`;
+  const text = [
+    `Hello ${name || 'there'},`,
+    '',
+    'We received a request to reset your password.',
+    `Reset link: ${resetLink}`,
+    '',
+    'If you did not request this, you can safely ignore this email.',
+    '',
+    'Thanks,',
+    'AOACON 2026 Team',
+  ].join('\n');
+
+  const bodyHtml = `
+    <p style="margin:0 0 10px;">Hello ${name || 'there'},</p>
+    <p style="margin:0 0 12px;">We received a request to reset your password.</p>
+    <p style="margin:0 0 16px;">
+      <a href="${resetLink}" style="display:inline-block;padding:10px 16px;background:#9c3253;color:#ffffff;text-decoration:none;border-radius:6px;">
+        Reset Password
+      </a>
+    </p>
+    <p style="margin:0 0 10px;font-size:12px;color:#6b7280;">If the button does not work, copy and paste this URL into your browser:</p>
+    <p style="margin:0;font-size:12px;color:#6b7280;">${resetLink}</p>
+    <p style="margin:12px 0 0;">If you did not request this, you can safely ignore this email.</p>
+  `;
+
+  const html = wrapEmail(title, bodyHtml);
+
+  return sendEmail({
+    to: email,
+    subject,
+    text,
+    html,
+  });
+};
+
 export const sendRegistrationEmail = async (user) => {
   const subject = 'AOACON 2026 Registration Received';
   const text = [
