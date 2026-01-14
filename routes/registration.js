@@ -31,20 +31,17 @@ router.post(
     try {
       logger.info(`${req.actorName || 'User'} is checking registration options.`);
       const {
-        selectedWorkshop,
+        selectedWorkshop: requestedWorkshop,
         accompanyingPersons = '0',
         addWorkshop = 'false',
         addAoaCourse = 'false',
         addLifeMembership = 'false',
       } = req.body;
+      let selectedWorkshop = requestedWorkshop;
 
       let wantsWorkshop = addWorkshop === 'true';
       let wantsAoaCourse = addAoaCourse === 'true';
       let wantsLifeMembership = addLifeMembership === 'true';
-
-      if (wantsWorkshop && !selectedWorkshop) {
-        return res.status(400).json({ message: 'Workshop selection is required' });
-      }
 
       const normalizedRole = normalizeRole(req.user.role);
 
@@ -84,6 +81,13 @@ router.post(
         if (registration.addWorkshop && !wantsWorkshop) wantsWorkshop = true;
         if (registration.addAoaCourse && !wantsAoaCourse) wantsAoaCourse = true;
         if (registration.addLifeMembership && !wantsLifeMembership) wantsLifeMembership = true;
+        if (registration.addWorkshop && registration.selectedWorkshop) {
+          selectedWorkshop = registration.selectedWorkshop;
+        }
+      }
+
+      if (wantsWorkshop && !selectedWorkshop) {
+        return res.status(400).json({ message: 'Workshop selection is required' });
       }
 
       
@@ -137,7 +141,7 @@ router.post(
       const totalBase = pricingTotals.packageBase + accompanyingBase;
       const totalGST = Math.round(totalBase * 0.18);
       const subtotalWithGST = totalBase + totalGST;
-      const processingFee = Math.round(subtotalWithGST * 0.0165);
+      const processingFee = Math.round(subtotalWithGST * 0.0195);
       const finalAmount = subtotalWithGST + processingFee;
 
       const updateData = {

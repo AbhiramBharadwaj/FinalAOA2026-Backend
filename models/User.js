@@ -87,6 +87,18 @@ const userSchema = new mongoose.Schema({
   collegeLetter: {
     type: String 
   },
+  collegeLetterStatus: {
+    type: String,
+    enum: ['PENDING', 'APPROVED', 'REJECTED'],
+    default: 'PENDING',
+  },
+  collegeLetterReviewedAt: {
+    type: Date,
+  },
+  collegeLetterReviewedBy: {
+    type: String,
+    trim: true,
+  },
   
   isActive: {
     type: Boolean,

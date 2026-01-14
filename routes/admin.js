@@ -8,6 +8,7 @@ import Feedback from '../models/Feedback.js';
 import User from '../models/User.js';
 import Attendance from '../models/Attendance.js'; // Add this import
 import { authenticateAdmin } from '../middleware/auth.js';
+import { sendCollegeLetterReviewEmail } from '../utils/email.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
@@ -363,6 +364,44 @@ router.get('/users', authenticateAdmin, async (req, res) => {
     res.json(users);
   } catch (error) {
     logger.error('admin.users.error', { requestId: req.requestId, message: error?.message || error });
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.post('/college-letters/:userId/review', authenticateAdmin, async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { status } = req.body;
+    if (!['APPROVED', 'REJECTED'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid review status' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+    if (user.role !== 'PGS') {
+      return res.status(400).json({ message: 'Recommendation letter review is only for PGS & Fellows' });
+    }
+    if (!user.collegeLetter) {
+      return res.status(400).json({ message: 'No recommendation letter uploaded' });
+    }
+
+    user.collegeLetterStatus = status;
+    user.collegeLetterReviewedAt = new Date();
+    user.collegeLetterReviewedBy = req.admin?.name || req.actorName || 'Admin';
+    await user.save();
+
+    try {
+      await sendCollegeLetterReviewEmail({ user, status });
+    } catch (emailError) {
+      logger.warn('college_letter.review.email_failed', {
+        userId: user._id,
+        message: emailError?.message || emailError,
+      });
+    }
+
+    res.json({ message: 'Recommendation letter reviewed', user });
+  } catch (error) {
+    logger.error('admin.college_letter_review.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
   }
 });

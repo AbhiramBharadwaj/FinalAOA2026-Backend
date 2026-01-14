@@ -140,7 +140,7 @@ export const sendRegistrationEmail = async (user) => {
     `Hello ${user.name},`,
     '',
     'Your AOACON 2026 account has been created successfully.',
-    `Role: ${user.role}`,
+    `Category: ${user.role}`,
     `Email: ${user.email}`,
     '',
     'You can now complete registration and payment from your dashboard.',
@@ -153,13 +153,42 @@ export const sendRegistrationEmail = async (user) => {
     <p style="margin:0 0 10px;">Hello ${user.name},</p>
     <p style="margin:0 0 12px;">Your AOACON 2026 account has been created successfully.</p>
     <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin:0 0 12px;">
-      <div style="margin:0 0 6px;"><strong>Role:</strong> ${user.role}</div>
+      <div style="margin:0 0 6px;"><strong>Category:</strong> ${user.role}</div>
       <div style="margin:0;"><strong>Email:</strong> ${user.email}</div>
     </div>
     <p style="margin:0;">You can now complete registration and payment from your dashboard.</p>
   `;
 
   const html = wrapEmail('Registration Received', bodyHtml);
+
+  return sendEmail({
+    to: user.email,
+    subject,
+    text,
+    html,
+  });
+};
+
+export const sendCollegeLetterReviewEmail = async ({ user, status }) => {
+  const normalizedStatus = status === 'APPROVED' ? 'approved' : 'rejected';
+  const subject = `AOACON 2026 Recommendation Letter ${normalizedStatus}`;
+  const text = [
+    `Hello ${user.name},`,
+    '',
+    `Your recommendation letter has been ${normalizedStatus}.`,
+    'If you have questions, please reach out to the AOACON 2026 team.',
+    '',
+    'Thanks,',
+    'AOACON 2026 Team',
+  ].join('\n');
+
+  const bodyHtml = `
+    <p style="margin:0 0 10px;">Hello ${user.name},</p>
+    <p style="margin:0 0 12px;">Your recommendation letter has been <strong>${normalizedStatus}</strong>.</p>
+    <p style="margin:0 0 12px;">If you have questions, please reach out to the AOACON 2026 team.</p>
+  `;
+
+  const html = wrapEmail('Recommendation Letter Review', bodyHtml);
 
   return sendEmail({
     to: user.email,

@@ -420,6 +420,9 @@ router.post('/profile/college-letter', authenticateUser, collegeLetterUpload.sin
     }
 
     user.collegeLetter = req.file.path;
+    user.collegeLetterStatus = 'PENDING';
+    user.collegeLetterReviewedAt = undefined;
+    user.collegeLetterReviewedBy = undefined;
     user.isProfileComplete = isProfileComplete(user);
     await user.save();
 
