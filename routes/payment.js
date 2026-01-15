@@ -27,8 +27,8 @@ const buildRegistrationLabel = (registration) => {
 
 
 const razorpay = new Razorpay({
-  key_id: "rzp_test_S1h9vHN1kvxrpA",
-  key_secret: "XuHwZOP504y5sQNSJTzCZyoB"
+  key_id: "rzp_live_S1h8EPxjXzDsaM",
+  key_secret: "sGAW1CE3Mnpus4PfYMdUAp8i"
 });
 
 
@@ -95,7 +95,7 @@ router.post('/create-order/registration', authenticateUser, requireProfileComple
       orderId: order.id,
       amount: balanceDue,
       currency: 'INR',
-      keyId: "rzp_test_S1h9vHN1kvxrpA"
+      keyId: "rzp_live_S1h8EPxjXzDsaM"
     });
   } catch (error) {
     logger.error('Registration payment order failed.', { message: error?.message || error });
@@ -155,7 +155,7 @@ router.post('/create-order/accommodation', authenticateUser, requireProfileCompl
       orderId: order.id,
       amount: booking.totalAmount,
       currency: 'INR',
-      keyId: "rzp_test_S1h9vHN1kvxrpA"
+      keyId: "rzp_live_S1h8EPxjXzDsaM"
     });
   } catch (error) {
     logger.error('Accommodation payment order failed.', { message: error?.message || error });
@@ -173,7 +173,7 @@ router.post('/verify', authenticateUser, async (req, res) => {
     
     const body = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSignature = crypto
-      .createHmac('sha256', "XuHwZOP504y5sQNSJTzCZyoB")
+      .createHmac('sha256', "sGAW1CE3Mnpus4PfYMdUAp8i")
       .update(body.toString())
       .digest('hex');
 
