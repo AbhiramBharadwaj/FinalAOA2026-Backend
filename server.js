@@ -28,6 +28,7 @@ app.use(cors({
 // Add this right after to handle the browser's initial "OPTIONS" check
 app.options('*', cors());
 
+app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
 app.use('/uploads', express.static('uploads'));
 app.use((req, res, next) => {

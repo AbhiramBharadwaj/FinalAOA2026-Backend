@@ -7,7 +7,7 @@ import Payment from '../models/Payment.js';
 import Attendance from '../models/Attendance.js';
 import User from '../models/User.js';
 import QRCode from 'qrcode';
-import { authenticateUser, requireProfileComplete } from '../middleware/auth.js';
+import { authenticateAdmin, authenticateUser, requireProfileComplete } from '../middleware/auth.js';
 import { sendPaymentSuccessEmail } from '../utils/email.js';
 import {
   buildRegistrationInvoicePdf,
@@ -30,6 +30,31 @@ const razorpay = new Razorpay({
   key_id: "rzp_live_S1h8EPxjXzDsaM",
   key_secret: "sGAW1CE3Mnpus4PfYMdUAp8i"
 });
+const razorpayWebhookSecret =
+  process.env.RAZORPAY_WEBHOOK_SECRET || "sGAW1CE3Mnpus4PfYMdUAp8i";
+
+const updateRegistrationPaymentStatus = async (registrationId, razorpayPaymentId) => {
+  const paidAggregate = await Payment.aggregate([
+    {
+      $match: {
+        registrationId,
+        status: 'SUCCESS',
+      },
+    },
+    {
+      $group: { _id: null, total: { $sum: '$amount' } },
+    },
+  ]);
+  const totalPaid = paidAggregate[0]?.total || 0;
+  const registration = await Registration.findById(registrationId);
+  if (!registration) return;
+  const paymentStatus = totalPaid >= registration.totalAmount ? 'PAID' : 'PENDING';
+  await Registration.findByIdAndUpdate(registrationId, {
+    paymentStatus,
+    totalPaid,
+    ...(razorpayPaymentId ? { razorpayPaymentId } : {}),
+  });
+};
 
 
 router.post('/create-order/registration', authenticateUser, requireProfileComplete, async (req, res) => {
@@ -196,27 +221,7 @@ router.post('/verify', authenticateUser, async (req, res) => {
 
     
     if (payment.paymentType === 'REGISTRATION') {
-      const paidAggregate = await Payment.aggregate([
-        {
-          $match: {
-            registrationId: payment.registrationId,
-            status: 'SUCCESS',
-          },
-        },
-        {
-          $group: { _id: null, total: { $sum: '$amount' } },
-        },
-      ]);
-      const totalPaid = paidAggregate[0]?.total || 0;
-      const registration = await Registration.findById(payment.registrationId);
-      if (registration) {
-        const paymentStatus = totalPaid >= registration.totalAmount ? 'PAID' : 'PENDING';
-        await Registration.findByIdAndUpdate(payment.registrationId, {
-          paymentStatus,
-          totalPaid,
-          razorpayPaymentId: razorpay_payment_id,
-        });
-      }
+      await updateRegistrationPaymentStatus(payment.registrationId, razorpay_payment_id);
     } else if (payment.paymentType === 'ACCOMMODATION') {
       await AccommodationBooking.findByIdAndUpdate(payment.accommodationBookingId, {
         paymentStatus: 'PAID',
@@ -319,6 +324,107 @@ router.post('/verify', authenticateUser, async (req, res) => {
   }
 });
 
+router.post('/webhook', async (req, res) => {
+  try {
+    const signature = req.headers['x-razorpay-signature'];
+    const rawBody = req.body instanceof Buffer ? req.body.toString('utf8') : JSON.stringify(req.body || {});
+    const expectedSignature = crypto
+      .createHmac('sha256', razorpayWebhookSecret)
+      .update(rawBody)
+      .digest('hex');
+
+    if (!signature || signature !== expectedSignature) {
+      logger.warn('payment.webhook.invalid_signature');
+      return res.status(400).json({ message: 'Invalid webhook signature' });
+    }
+
+    const event = JSON.parse(rawBody);
+    const eventType = event?.event;
+
+    if (eventType !== 'payment.captured' && eventType !== 'order.paid') {
+      return res.json({ message: 'Event ignored' });
+    }
+
+    const paymentEntity = event?.payload?.payment?.entity;
+    const orderEntity = event?.payload?.order?.entity;
+    const razorpayOrderId = paymentEntity?.order_id || orderEntity?.id;
+    const razorpayPaymentId = paymentEntity?.id;
+
+    if (!razorpayOrderId) {
+      logger.warn('payment.webhook.missing_order_id');
+      return res.json({ message: 'Missing order id' });
+    }
+
+    const payment = await Payment.findOne({ razorpayOrderId });
+    if (!payment) {
+      logger.warn('payment.webhook.payment_not_found', { razorpayOrderId });
+      return res.json({ message: 'Payment not found' });
+    }
+
+    if (payment.status !== 'SUCCESS') {
+      payment.status = 'SUCCESS';
+      if (razorpayPaymentId) payment.razorpayPaymentId = razorpayPaymentId;
+      await payment.save();
+    }
+
+    if (payment.paymentType === 'REGISTRATION') {
+      await updateRegistrationPaymentStatus(payment.registrationId, razorpayPaymentId);
+    } else if (payment.paymentType === 'ACCOMMODATION') {
+      await AccommodationBooking.findByIdAndUpdate(payment.accommodationBookingId, {
+        paymentStatus: 'PAID',
+        bookingStatus: 'CONFIRMED',
+        ...(razorpayPaymentId ? { razorpayPaymentId } : {}),
+      });
+    }
+
+    res.json({ message: 'Webhook processed' });
+  } catch (error) {
+    logger.error('payment.webhook.error', { message: error?.message || error });
+    res.status(500).json({ message: 'Webhook error' });
+  }
+});
+
+router.post('/reconcile/order', authenticateAdmin, async (req, res) => {
+  try {
+    const { razorpayOrderId } = req.body;
+    if (!razorpayOrderId) {
+      return res.status(400).json({ message: 'razorpayOrderId is required' });
+    }
+
+    const payments = await razorpay.orders.fetchPayments(razorpayOrderId);
+    const captured = payments?.items?.find((item) => item?.status === 'captured');
+
+    if (!captured) {
+      return res.json({ message: 'No captured payment found for this order' });
+    }
+
+    const payment = await Payment.findOne({ razorpayOrderId });
+    if (!payment) {
+      return res.status(404).json({ message: 'Payment record not found' });
+    }
+
+    if (payment.status !== 'SUCCESS') {
+      payment.status = 'SUCCESS';
+      payment.razorpayPaymentId = captured?.id || payment.razorpayPaymentId;
+      await payment.save();
+    }
+
+    if (payment.paymentType === 'REGISTRATION') {
+      await updateRegistrationPaymentStatus(payment.registrationId, captured?.id);
+    } else if (payment.paymentType === 'ACCOMMODATION') {
+      await AccommodationBooking.findByIdAndUpdate(payment.accommodationBookingId, {
+        paymentStatus: 'PAID',
+        bookingStatus: 'CONFIRMED',
+        ...(captured?.id ? { razorpayPaymentId: captured.id } : {}),
+      });
+    }
+
+    res.json({ message: 'Reconciliation completed' });
+  } catch (error) {
+    logger.error('payment.reconcile.error', { message: error?.message || error });
+    res.status(500).json({ message: 'Failed to reconcile payment' });
+  }
+});
 
 router.post('/failed', authenticateUser, async (req, res) => {
   try {
@@ -333,17 +439,6 @@ router.post('/failed', authenticateUser, async (req, res) => {
       payment.status = 'FAILED';
       payment.failureReason = error?.description || 'Payment failed';
       await payment.save();
-
-      
-      if (payment.paymentType === 'REGISTRATION') {
-        await Registration.findByIdAndUpdate(payment.registrationId, {
-          paymentStatus: 'FAILED'
-        });
-      } else if (payment.paymentType === 'ACCOMMODATION') {
-        await AccommodationBooking.findByIdAndUpdate(payment.accommodationBookingId, {
-          paymentStatus: 'FAILED'
-        });
-      }
     }
 
     logger.warn(`Payment failure recorded for order ${razorpay_order_id}.`);
