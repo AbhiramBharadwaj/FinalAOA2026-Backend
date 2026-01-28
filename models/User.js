@@ -114,6 +114,15 @@ const userSchema = new mongoose.Schema({
   resetPasswordExpires: {
     type: Date
   },
+  resetEmailSentAt: {
+    type: Date
+  },
+  resetEmailFailedAt: {
+    type: Date
+  },
+  resetEmailError: {
+    type: String
+  },
   isProfileComplete: {
     type: Boolean,
     default: false

@@ -267,7 +267,14 @@ router.post('/forgot-password', async (req, res) => {
         resetLink,
         isAdmin: false
       });
+      user.resetEmailSentAt = new Date();
+      user.resetEmailFailedAt = undefined;
+      user.resetEmailError = undefined;
+      await user.save();
     } catch (emailError) {
+      user.resetEmailFailedAt = new Date();
+      user.resetEmailError = emailError?.message || String(emailError);
+      await user.save();
       logger.warn(`Password reset email failed for ${user.email}.`, {
         message: emailError?.message || emailError,
       });
@@ -500,7 +507,14 @@ router.post('/admin/forgot-password', async (req, res) => {
         resetLink,
         isAdmin: true
       });
+      admin.resetEmailSentAt = new Date();
+      admin.resetEmailFailedAt = undefined;
+      admin.resetEmailError = undefined;
+      await admin.save();
     } catch (emailError) {
+      admin.resetEmailFailedAt = new Date();
+      admin.resetEmailError = emailError?.message || String(emailError);
+      await admin.save();
       logger.warn(`Admin password reset email failed for ${admin.email}.`, {
         message: emailError?.message || emailError,
       });

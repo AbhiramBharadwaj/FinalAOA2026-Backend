@@ -254,7 +254,11 @@ router.post('/verify', authenticateUser, async (req, res) => {
           });
           const invoiceBuffer = buildRegistrationInvoicePdf(
             registration,
-            registration.userId
+            registration.userId,
+            {
+              paymentId: razorpay_payment_id || registration.razorpayPaymentId,
+              paidAt: payment.createdAt || new Date(),
+            }
           );
 
           await sendPaymentSuccessEmail({
@@ -280,6 +284,11 @@ router.post('/verify', authenticateUser, async (req, res) => {
                 contentType: 'application/pdf',
               },
             ],
+          });
+          await Registration.findByIdAndUpdate(registration._id, {
+            paymentEmailSentAt: new Date(),
+            paymentEmailFailedAt: null,
+            paymentEmailError: null,
           });
         }
       } else if (payment.paymentType === 'ACCOMMODATION') {
@@ -311,6 +320,12 @@ router.post('/verify', authenticateUser, async (req, res) => {
         }
       }
     } catch (emailError) {
+      if (payment.paymentType === 'REGISTRATION' && payment.registrationId) {
+        await Registration.findByIdAndUpdate(payment.registrationId, {
+          paymentEmailFailedAt: new Date(),
+          paymentEmailError: emailError?.message || String(emailError),
+        });
+      }
       logger.warn('Payment email failed to send.', { message: emailError?.message || emailError });
     }
 

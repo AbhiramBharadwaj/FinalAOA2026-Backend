@@ -30,6 +30,15 @@ const adminSchema = new mongoose.Schema({
   },
   resetPasswordExpires: {
     type: Date
+  },
+  resetEmailSentAt: {
+    type: Date
+  },
+  resetEmailFailedAt: {
+    type: Date
+  },
+  resetEmailError: {
+    type: String
   }
 }, {
   timestamps: true
