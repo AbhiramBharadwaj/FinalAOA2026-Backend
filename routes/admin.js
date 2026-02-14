@@ -706,15 +706,20 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
         paidAt: new Date(),
       });
 
+      const summaryLines = [
+        `Registration No: ${registration.registrationNumber || 'N/A'}`,
+        `Package: ${buildRegistrationLabel(registration)}`,
+        `Amount Paid: INR ${Number(finalAmount || 0).toLocaleString('en-IN')}`,
+        'Payment Status: PAID',
+      ];
+      if (registration.couponCode && registration.couponDiscount) {
+        summaryLines.splice(2, 0, `Coupon: ${registration.couponCode} (-INR ${Number(registration.couponDiscount).toLocaleString('en-IN')})`);
+      }
+
       await sendPaymentSuccessEmail({
         user,
         subject: `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
-        summaryLines: [
-          `Registration No: ${registration.registrationNumber || 'N/A'}`,
-          `Package: ${buildRegistrationLabel(registration)}`,
-          `Amount Paid: INR ${Number(finalAmount || 0).toLocaleString('en-IN')}`,
-          'Payment Status: PAID',
-        ],
+        summaryLines,
         qrCid: 'qr-ticket',
         attachments: [
           {
@@ -870,19 +875,24 @@ router.post('/registrations/:id/resend-email', authenticateAdmin, async (req, re
       paidAt: registration.updatedAt || new Date(),
     });
 
-    await sendPaymentSuccessEmail({
-      user: registration.userId,
-      subject: `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
-      summaryLines: [
+      const summaryLines = [
         `Registration No: ${registration.registrationNumber || 'N/A'}`,
         `Package: ${buildRegistrationLabel(registration)}`,
         `Amount Paid: INR ${Number(registration.totalPaid || registration.totalAmount || 0).toLocaleString(
           'en-IN'
         )}`,
         'Payment Status: PAID',
-      ],
-      qrCid: 'qr-ticket',
-      attachments: [
+      ];
+      if (registration.couponCode && registration.couponDiscount) {
+        summaryLines.splice(2, 0, `Coupon: ${registration.couponCode} (-INR ${Number(registration.couponDiscount).toLocaleString('en-IN')})`);
+      }
+
+      await sendPaymentSuccessEmail({
+        user: registration.userId,
+        subject: `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
+        summaryLines,
+        qrCid: 'qr-ticket',
+        attachments: [
         {
           filename: `AOA_Ticket_${registration.registrationNumber}.png`,
           content: qrBuffer,

@@ -126,6 +126,10 @@ export const buildRegistrationInvoicePdf = (registration, user, paymentMeta = {}
   };
 
   addRow('Conference Base', registration.basePrice || 0, true);
+  if (registration.couponDiscount) {
+    const codeLabel = registration.couponCode ? `Coupon (${registration.couponCode})` : 'Coupon Discount';
+    addRow(codeLabel, -Math.abs(registration.couponDiscount), false);
+  }
   if (registration.workshopAddOn) addRow('Workshop Add-on', registration.workshopAddOn);
   if (registration.aoaCourseBase) addRow('AOA Certified Course', registration.aoaCourseBase, true);
   if (registration.lifeMembershipBase) addRow('AOA Life Membership', registration.lifeMembershipBase);

@@ -8,6 +8,12 @@ import logger from '../utils/logger.js';
 
 const router = express.Router();
 const upload = multer();
+const COUPON_ENABLED = true;
+const COUPONS = {
+  AOACON5002026: { discount: 500 },
+  // Example for future:
+  DISCOUNT10002026: { discount: 1000 },
+};
 
 const normalizeRole = (role) => {
   if (!role) return role;
@@ -20,6 +26,81 @@ const normalizeRole = (role) => {
   if (lower === 'non_aoa' || lower === 'non-aoa') return 'NON_AOA';
   if (lower === 'pgs') return 'PGS';
   return trimmed;
+};
+
+const normalizeCouponCode = (code) =>
+  code ? String(code).trim().toUpperCase() : '';
+
+const resolveCouponDiscount = (code, basePrice) => {
+  const normalized = normalizeCouponCode(code);
+  if (!normalized) {
+    return { code: null, discount: 0 };
+  }
+  const config = COUPONS[normalized];
+  if (!config) {
+    return { code: null, discount: 0 };
+  }
+  const discount = Math.max(0, Math.min(config.discount, Number(basePrice || 0)));
+  return { code: normalized, discount };
+};
+
+const computeTotalsForRegistration = ({
+  role,
+  bookingPhase,
+  addWorkshop,
+  addAoaCourse,
+  addLifeMembership,
+  accompanyingPersons = 0,
+  couponCode,
+}) => {
+  const pricingTotals = calculateRegistrationTotals(role, bookingPhase, {
+    addWorkshop,
+    addAoaCourse,
+    addLifeMembership,
+  });
+
+  if (!pricingTotals || pricingTotals.packageBase <= 0) {
+    return null;
+  }
+
+  const accompanyingCount = parseInt(accompanyingPersons, 10) || 0;
+  const accompanyingBase = accompanyingCount * 7000;
+  const basePrice = pricingTotals.basePrice || 0;
+
+  const resolved = couponCode ? resolveCouponDiscount(couponCode, basePrice) : { code: null, discount: 0 };
+  const couponCodeFinal = resolved.code;
+  const couponDiscount = resolved.discount;
+
+  const discountedBasePrice = Math.max(0, basePrice - couponDiscount);
+  const packageBase =
+    discountedBasePrice +
+    (pricingTotals.workshopAddOn || 0) +
+    (pricingTotals.aoaCourseAddOn || 0) +
+    (pricingTotals.lifeMembershipAddOn || 0);
+  const totalBase = packageBase + accompanyingBase;
+  const totalGST = Math.round(totalBase * 0.18);
+  const subtotalWithGST = totalBase + totalGST;
+  const processingFee = Math.round(subtotalWithGST * 0.0195);
+  const finalAmount = subtotalWithGST + processingFee;
+
+  return {
+    basePrice,
+    packageBase,
+    packageGST: Math.round(packageBase * 0.18),
+    totalBase,
+    totalGST,
+    subtotalWithGST,
+    processingFee,
+    totalAmount: finalAmount,
+    workshopAddOn: pricingTotals.workshopAddOn,
+    aoaCourseBase: pricingTotals.aoaCourseAddOn,
+    aoaCourseGST: pricingTotals.aoaCourseAddOn > 0 ? Math.round(pricingTotals.aoaCourseAddOn * 0.18) : 0,
+    lifeMembershipBase: pricingTotals.lifeMembershipAddOn,
+    accompanyingBase,
+    accompanyingGST: Math.round(accompanyingBase * 0.18),
+    couponCode: couponCodeFinal,
+    couponDiscount,
+  };
 };
 
 router.post(
@@ -36,6 +117,7 @@ router.post(
         addWorkshop = 'false',
         addAoaCourse = 'false',
         addLifeMembership = 'false',
+        couponCode: requestedCoupon,
       } = req.body;
       let selectedWorkshop = requestedWorkshop;
 
@@ -138,7 +220,34 @@ router.post(
 
       const accompanyingCount = parseInt(accompanyingPersons, 10) || 0;
       const accompanyingBase = accompanyingCount * 7000;
-      const totalBase = pricingTotals.packageBase + accompanyingBase;
+      const basePrice = pricingTotals.basePrice || 0;
+
+      let couponCode = registration?.couponCode || null;
+      let couponDiscount = registration?.couponDiscount || 0;
+      const normalizedRequestedCoupon = normalizeCouponCode(requestedCoupon);
+
+      if (normalizedRequestedCoupon) {
+        if (!COUPON_ENABLED) {
+          return res.status(400).json({ message: 'Coupons are currently disabled.' });
+        }
+        const resolved = resolveCouponDiscount(normalizedRequestedCoupon, basePrice);
+        if (!resolved.code) {
+          return res.status(400).json({ message: 'Invalid coupon code.' });
+        }
+        couponCode = resolved.code;
+        couponDiscount = resolved.discount;
+      } else {
+        couponCode = null;
+        couponDiscount = 0;
+      }
+
+      const discountedBasePrice = Math.max(0, basePrice - couponDiscount);
+      const packageBase =
+        discountedBasePrice +
+        (pricingTotals.workshopAddOn || 0) +
+        (pricingTotals.aoaCourseAddOn || 0) +
+        (pricingTotals.lifeMembershipAddOn || 0);
+      const totalBase = packageBase + accompanyingBase;
       const totalGST = Math.round(totalBase * 0.18);
       const subtotalWithGST = totalBase + totalGST;
       const processingFee = Math.round(subtotalWithGST * 0.0195);
@@ -158,14 +267,17 @@ router.post(
         addLifeMembership: wantsLifeMembership,
         lifeMembershipBase: pricingTotals.lifeMembershipAddOn,
         bookingPhase,
-        basePrice: pricingTotals.basePrice,
-        packageBase: pricingTotals.packageBase,
-        packageGST: pricingTotals.gst,
+        basePrice,
+        packageBase,
+        packageGST: Math.round(packageBase * 0.18),
         totalBase,
         totalGST,
         subtotalWithGST,
         processingFee,
         totalAmount: finalAmount,
+        couponCode,
+        couponDiscount,
+        couponAppliedAt: couponCode ? new Date() : null,
         lifetimeMembershipId:
           wantsLifeMembership
             ? registration?.lifetimeMembershipId || generateLifetimeMembershipId()
@@ -217,6 +329,133 @@ router.post(
     }
   }
 );
+
+router.post('/apply-coupon', authenticateUser, requireProfileComplete, async (req, res) => {
+  try {
+    const { couponCode } = req.body || {};
+    if (!COUPON_ENABLED) {
+      return res.status(400).json({ message: 'Coupons are currently disabled.' });
+    }
+    const normalizedCoupon = normalizeCouponCode(couponCode);
+    if (!normalizedCoupon) {
+      return res.status(400).json({ message: 'Coupon code is required.' });
+    }
+
+    const registration = await Registration.findOne({ userId: req.user._id });
+    if (!registration) {
+      return res.status(404).json({ message: 'No registration found' });
+    }
+
+    const normalizedRole = normalizeRole(req.user.role);
+    const bookingPhase = registration.bookingPhase || getBookingPhase();
+    const pricingTotals = calculateRegistrationTotals(normalizedRole, bookingPhase, {
+      addWorkshop: registration.addWorkshop,
+      addAoaCourse: registration.addAoaCourse,
+      addLifeMembership: registration.addLifeMembership,
+    });
+
+    const basePrice = pricingTotals.basePrice || 0;
+    const resolved = resolveCouponDiscount(normalizedCoupon, basePrice);
+    if (!resolved.code) {
+      return res.status(400).json({ message: 'Invalid coupon code.' });
+    }
+
+    const discountedBasePrice = Math.max(0, basePrice - resolved.discount);
+    const packageBase =
+      discountedBasePrice +
+      (pricingTotals.workshopAddOn || 0) +
+      (pricingTotals.aoaCourseAddOn || 0) +
+      (pricingTotals.lifeMembershipAddOn || 0);
+    const accompanyingBase = registration.accompanyingBase || 0;
+    const totalBase = packageBase + accompanyingBase;
+    const totalGST = Math.round(totalBase * 0.18);
+    const subtotalWithGST = totalBase + totalGST;
+    const processingFee = Math.round(subtotalWithGST * 0.0195);
+    const totalAmount = subtotalWithGST + processingFee;
+
+    registration.basePrice = basePrice;
+    registration.packageBase = packageBase;
+    registration.packageGST = Math.round(packageBase * 0.18);
+    registration.totalBase = totalBase;
+    registration.totalGST = totalGST;
+    registration.subtotalWithGST = subtotalWithGST;
+    registration.processingFee = processingFee;
+    registration.totalAmount = totalAmount;
+    registration.couponCode = resolved.code;
+    registration.couponDiscount = resolved.discount;
+    registration.couponAppliedAt = new Date();
+    registration.paymentStatus =
+      (registration.totalPaid || 0) >= totalAmount ? 'PAID' : 'PENDING';
+
+    await registration.save();
+
+    res.json(registration);
+  } catch (error) {
+    logger.error('registration.apply_coupon.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+    });
+    res.status(500).json({ message: 'Server error' });
+  }
+});
+
+router.post('/validate-coupon', authenticateUser, requireProfileComplete, async (req, res) => {
+  try {
+    const registration = await Registration.findOne({ userId: req.user._id });
+    if (!registration) {
+      return res.status(404).json({ message: 'No registration found' });
+    }
+
+    const normalizedRole = normalizeRole(req.user.role);
+    const bookingPhase = registration.bookingPhase || getBookingPhase();
+
+    const totals = computeTotalsForRegistration({
+      role: normalizedRole,
+      bookingPhase,
+      addWorkshop: registration.addWorkshop,
+      addAoaCourse: registration.addAoaCourse,
+      addLifeMembership: registration.addLifeMembership,
+      accompanyingPersons: registration.accompanyingPersons,
+      couponCode: registration.couponCode,
+    });
+
+    if (!totals) {
+      return res.status(400).json({ message: 'Pricing not available for this registration' });
+    }
+
+    const couponValid = Boolean(totals.couponCode);
+    registration.basePrice = totals.basePrice;
+    registration.packageBase = totals.packageBase;
+    registration.packageGST = totals.packageGST;
+    registration.totalBase = totals.totalBase;
+    registration.totalGST = totals.totalGST;
+    registration.subtotalWithGST = totals.subtotalWithGST;
+    registration.processingFee = totals.processingFee;
+    registration.totalAmount = totals.totalAmount;
+    registration.workshopAddOn = totals.workshopAddOn;
+    registration.aoaCourseBase = totals.aoaCourseBase;
+    registration.aoaCourseGST = totals.aoaCourseGST;
+    registration.lifeMembershipBase = totals.lifeMembershipBase;
+    registration.accompanyingBase = totals.accompanyingBase;
+    registration.accompanyingGST = totals.accompanyingGST;
+    registration.couponCode = totals.couponCode;
+    registration.couponDiscount = totals.couponDiscount;
+    registration.couponAppliedAt = totals.couponCode ? registration.couponAppliedAt || new Date() : null;
+
+    const totalPaid = registration.totalPaid || 0;
+    registration.paymentStatus = totalPaid >= totals.totalAmount ? 'PAID' : 'PENDING';
+
+    await registration.save();
+
+    res.json({ registration, couponValid });
+  } catch (error) {
+    logger.error('registration.validate_coupon.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+    });
+    res.status(500).json({ message: 'Server error' });
+  }
+});
 
 
 router.get('/my-registration', authenticateUser, async (req, res) => {
