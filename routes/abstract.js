@@ -22,7 +22,7 @@ const storage = multer.diskStorage({
 const upload = multer({
   storage,
   limits: {
-    fileSize: 5 * 1024 * 1024, 
+    fileSize: 10 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
     const allowedMimeTypes = new Set([
@@ -39,8 +39,21 @@ const upload = multer({
   }
 });
 
+const handleAbstractUpload = (req, res, next) => {
+  upload.single('abstractFile')(req, res, (error) => {
+    if (!error) {
+      return next();
+    }
 
-router.post('/submit', authenticateUser, requireProfileComplete, upload.single('abstractFile'), async (req, res) => {
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'Abstract file size must be less than 10MB' });
+    }
+
+    return res.status(400).json({ message: error.message || 'Invalid abstract file upload' });
+  });
+};
+
+router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractUpload, async (req, res) => {
   try {
     logger.info(`${req.actorName || 'User'} is submitting an abstract.`);
     const { title, authors, category } = req.body;
