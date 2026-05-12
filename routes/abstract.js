@@ -25,10 +25,16 @@ const upload = multer({
     fileSize: 5 * 1024 * 1024, 
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
+    const allowedMimeTypes = new Set([
+      'application/pdf',
+      'application/msword',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    ]);
+
+    if (allowedMimeTypes.has(file.mimetype)) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF files are allowed'), false);
+      cb(new Error('Only PDF, DOC, or DOCX files are allowed'), false);
     }
   }
 });
@@ -40,7 +46,7 @@ router.post('/submit', authenticateUser, requireProfileComplete, upload.single('
     const { title, authors, category } = req.body;
 
     if (!req.file) {
-      return res.status(400).json({ message: 'PDF file is required' });
+      return res.status(400).json({ message: 'PDF, DOC, or DOCX file is required' });
     }
 
     
