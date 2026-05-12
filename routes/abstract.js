@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
+import fs from 'fs';
 import Abstract from '../models/Abstract.js';
 import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
 import { sendAbstractSubmittedEmail, sendAbstractReviewEmail } from '../utils/email.js';
@@ -9,9 +10,11 @@ import logger from '../utils/logger.js';
 const router = express.Router();
 
 
+const abstractUploadDir = 'uploads/abstracts';
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    cb(null, 'uploads/abstracts/');
+    fs.mkdirSync(abstractUploadDir, { recursive: true });
+    cb(null, abstractUploadDir);
   },
   filename: (req, file, cb) => {
     const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
