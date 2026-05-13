@@ -3,6 +3,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import Abstract from '../models/Abstract.js';
+import Registration from '../models/Registration.js';
 import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
 import { sendAbstractSubmittedEmail, sendAbstractReviewEmail } from '../utils/email.js';
 import logger from '../utils/logger.js';
@@ -45,8 +46,28 @@ const upload = multer({
 const handleAbstractUpload = (req, res, next) => {
   upload.single('abstractFile')(req, res, (error) => {
     if (!error) {
+      console.log('[abstract.submit] Upload middleware completed', {
+        userId: req.user?._id?.toString?.(),
+        body: req.body,
+        file: req.file
+          ? {
+              fieldname: req.file.fieldname,
+              originalname: req.file.originalname,
+              mimetype: req.file.mimetype,
+              size: req.file.size,
+              path: req.file.path,
+            }
+          : null,
+      });
       return next();
     }
+
+    console.error('[abstract.submit] Upload middleware failed', {
+      userId: req.user?._id?.toString?.(),
+      code: error.code,
+      message: error.message,
+      stack: error.stack,
+    });
 
     if (error.code === 'LIMIT_FILE_SIZE') {
       return res.status(400).json({ message: 'Abstract file size must be less than 10MB' });
@@ -61,13 +82,32 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractU
     logger.info(`${req.actorName || 'User'} is submitting an abstract.`);
     const { title, authors, category } = req.body;
 
+    console.log('[abstract.submit] Request entered handler', {
+      userId: req.user?._id?.toString?.(),
+      title,
+      authors,
+      category,
+      hasFile: Boolean(req.file),
+      filePath: req.file?.path,
+    });
+
     if (!req.file) {
+      console.warn('[abstract.submit] Missing abstract file', {
+        userId: req.user?._id?.toString?.(),
+      });
       return res.status(400).json({ message: 'PDF, DOC, or DOCX file is required' });
     }
 
-    
+    console.log('[abstract.submit] Checking for existing abstract', {
+      userId: req.user?._id?.toString?.(),
+    });
     const existingAbstract = await Abstract.findOne({ userId: req.user._id });
     if (existingAbstract) {
+      console.warn('[abstract.submit] Existing abstract found', {
+        userId: req.user?._id?.toString?.(),
+        abstractId: existingAbstract._id?.toString?.(),
+        submissionNumber: existingAbstract.submissionNumber,
+      });
       return res.status(400).json({ message: 'You have already submitted an abstract' });
     }
 
@@ -79,9 +119,26 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractU
       filePath: req.file.path
     });
 
+    console.log('[abstract.submit] Abstract document prepared', {
+      userId: req.user?._id?.toString?.(),
+      title: abstract.title,
+      authors: abstract.authors,
+      category: abstract.category,
+      filePath: abstract.filePath,
+    });
+
     await abstract.save();
+    console.log('[abstract.submit] Abstract saved', {
+      abstractId: abstract._id?.toString?.(),
+      submissionNumber: abstract.submissionNumber,
+    });
 
     await abstract.populate('userId', 'name email');
+    console.log('[abstract.submit] Abstract populated', {
+      abstractId: abstract._id?.toString?.(),
+      populatedUserId: abstract.userId?._id?.toString?.(),
+      populatedEmail: abstract.userId?.email,
+    });
 
     logger.info(`${req.actorName || 'User'} submitted an abstract.`);
     res.status(201).json({
@@ -95,7 +152,24 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractU
       logger.warn('Abstract email failed to send.', { message: emailError?.message || emailError });
     }
   } catch (error) {
-    logger.error('Abstract submission failed.', { message: error?.message || error });
+    console.error('[abstract.submit] Submission failed', {
+      name: error?.name,
+      message: error?.message,
+      stack: error?.stack,
+      errors: error?.errors,
+    });
+    logger.error('Abstract submission failed.', {
+      name: error?.name,
+      message: error?.message || error,
+      errors: error?.errors,
+    });
+
+    if (error?.name === 'ValidationError') {
+      return res.status(400).json({
+        message: error.message,
+      });
+    }
+
     res.status(500).json({ message: 'Server error during abstract submission' });
   }
 });
@@ -138,10 +212,40 @@ router.get('/all', authenticateAdmin, async (req, res) => {
     const abstracts = await Abstract.find(filter)
       .populate('userId', 'name email role')
       .populate('reviewedBy', 'name')
-      .sort({ createdAt: -1 });
+      .sort({ createdAt: -1 })
+      .lean();
 
-    logger.debug('abstract.list.success', { requestId: req.requestId, count: abstracts.length });
-    res.json(abstracts);
+    const userIds = abstracts
+      .map((abstract) => abstract.userId?._id)
+      .filter(Boolean);
+
+    const registrations = await Registration.find(
+      { userId: { $in: userIds } },
+      'userId registrationNumber'
+    ).lean();
+
+    const registrationByUserId = new Map(
+      registrations.map((registration) => [
+        registration.userId.toString(),
+        {
+          _id: registration._id,
+          registrationNumber: registration.registrationNumber,
+        },
+      ])
+    );
+
+    const abstractsWithRegistration = abstracts.map((abstract) => ({
+      ...abstract,
+      registration: abstract.userId?._id
+        ? registrationByUserId.get(abstract.userId._id.toString()) || null
+        : null,
+    }));
+
+    logger.debug('abstract.list.success', {
+      requestId: req.requestId,
+      count: abstractsWithRegistration.length,
+    });
+    res.json(abstractsWithRegistration);
   } catch (error) {
     logger.error('abstract.list.error', { requestId: req.requestId, message: error?.message || error });
     res.status(500).json({ message: 'Server error' });
