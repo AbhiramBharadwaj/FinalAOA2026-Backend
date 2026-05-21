@@ -101,23 +101,93 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractU
     console.log('[abstract.submit] Checking for existing abstract', {
       userId: req.user?._id?.toString?.(),
     });
-    const existingAbstract = await Abstract.findOne({ userId: req.user._id });
-    if (existingAbstract) {
+
+    const blockingAbstract = await Abstract.findOne({
+      userId: req.user._id,
+      status: { $in: ['PENDING', 'APPROVED'] },
+    }).sort({ createdAt: -1 });
+
+    if (blockingAbstract) {
       console.warn('[abstract.submit] Existing abstract found', {
         userId: req.user?._id?.toString?.(),
-        abstractId: existingAbstract._id?.toString?.(),
-        submissionNumber: existingAbstract.submissionNumber,
+        abstractId: blockingAbstract._id?.toString?.(),
+        submissionNumber: blockingAbstract.submissionNumber,
+        status: blockingAbstract.status,
       });
       return res.status(400).json({ message: 'You have already submitted an abstract' });
     }
 
-    const abstract = new Abstract({
+    const existingAbstract = await Abstract.findOne({
       userId: req.user._id,
-      title,
-      authors,
-      category,
-      filePath: req.file.path
-    });
+      status: 'REJECTED',
+    }).sort({ createdAt: -1 });
+
+    let abstract;
+    if (existingAbstract) {
+      const existingHistory = [...(existingAbstract.submissionHistory || [])];
+
+      // Backfill legacy data: if older records have no history yet, preserve
+      // the previous reviewed submission as attempt #1 before overwriting.
+      if (existingHistory.length === 0) {
+        existingHistory.push({
+          attemptNumber: 1,
+          title: existingAbstract.title,
+          authors: existingAbstract.authors,
+          category: existingAbstract.category,
+          filePath: existingAbstract.filePath,
+          submittedAt: existingAbstract.createdAt || new Date(),
+          finalStatus: existingAbstract.status || 'PENDING',
+          reviewComments: existingAbstract.reviewComments || '',
+          reviewedAt: existingAbstract.reviewedAt || null,
+        });
+      }
+
+      const nextAttemptNumber = existingHistory.length + 1;
+      const historyEntry = {
+        attemptNumber: nextAttemptNumber,
+        title,
+        authors,
+        category,
+        filePath: req.file.path,
+        submittedAt: new Date(),
+        finalStatus: 'PENDING',
+        reviewComments: '',
+      };
+
+      existingAbstract.title = title;
+      existingAbstract.authors = authors;
+      existingAbstract.category = category;
+      existingAbstract.filePath = req.file.path;
+      existingAbstract.status = 'PENDING';
+      existingAbstract.reviewComments = '';
+      existingAbstract.reviewedBy = null;
+      existingAbstract.reviewedAt = null;
+      existingAbstract.submissionHistory = [
+        ...existingHistory,
+        historyEntry,
+      ];
+      abstract = existingAbstract;
+    } else {
+      const historyEntry = {
+        attemptNumber: 1,
+        title,
+        authors,
+        category,
+        filePath: req.file.path,
+        submittedAt: new Date(),
+        finalStatus: 'PENDING',
+        reviewComments: '',
+      };
+
+      abstract = new Abstract({
+        userId: req.user._id,
+        title,
+        authors,
+        category,
+        filePath: req.file.path,
+        submissionHistory: [historyEntry],
+      });
+    }
 
     console.log('[abstract.submit] Abstract document prepared', {
       userId: req.user?._id?.toString?.(),
@@ -179,6 +249,7 @@ router.get('/my-abstract', authenticateUser, async (req, res) => {
   try {
     logger.debug('abstract.fetch_self.start', { requestId: req.requestId, userId: req.user?._id });
     const abstract = await Abstract.findOne({ userId: req.user._id })
+      .sort({ createdAt: -1 })
       .populate('userId', 'name email')
       .populate('reviewedBy', 'name');
 
@@ -259,20 +330,26 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
     const abstractId = req.params.id;
 
     logger.info(`${req.actorName || 'Admin'} reviewed an abstract with status ${status}.`);
-    const abstract = await Abstract.findByIdAndUpdate(
-      abstractId,
-      {
-        status,
-        reviewComments,
-        reviewedBy: req.admin._id,
-        reviewedAt: new Date()
-      },
-      { new: true }
-    ).populate(['userId', 'reviewedBy']);
+    const abstract = await Abstract.findById(abstractId);
 
     if (!abstract) {
       return res.status(404).json({ message: 'Abstract not found' });
     }
+
+    abstract.status = status;
+    abstract.reviewComments = reviewComments;
+    abstract.reviewedBy = req.admin._id;
+    abstract.reviewedAt = new Date();
+
+    if (Array.isArray(abstract.submissionHistory) && abstract.submissionHistory.length > 0) {
+      const latestIndex = abstract.submissionHistory.length - 1;
+      abstract.submissionHistory[latestIndex].finalStatus = status;
+      abstract.submissionHistory[latestIndex].reviewComments = reviewComments || '';
+      abstract.submissionHistory[latestIndex].reviewedAt = abstract.reviewedAt;
+    }
+
+    await abstract.save();
+    await abstract.populate(['userId', 'reviewedBy']);
 
     logger.info(`${req.actorName || 'Admin'} saved the abstract review.`);
     res.json({

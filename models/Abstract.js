@@ -51,6 +51,38 @@ const abstractSchema = new mongoose.Schema({
   submissionNumber: {
     type: String,
     unique: true
+  },
+  submissionHistory: {
+    type: [
+      {
+        attemptNumber: { type: Number, required: true },
+        title: { type: String, required: true, trim: true },
+        authors: { type: String, required: true, trim: true },
+        category: {
+          type: String,
+          enum: [
+            'ORIGINAL_RESEARCH',
+            'CLINICAL_AUDIT_QUALITY_IMPROVEMENT',
+            'CASE_REPORT_CASE_SERIES',
+            'REVIEW_EDUCATIONAL_POSTER',
+            'INNOVATIONS_IN_LABOUR_ANALGESIA_OBSTETRIC_ANAESTHESIA',
+            'PATIENT_SAFETY_IN_OBSTETRIC_ANAESTHESIA',
+            'SIMULATION_TRAINING_INITIATIVES'
+          ],
+          required: true
+        },
+        filePath: { type: String, required: true },
+        submittedAt: { type: Date, default: Date.now },
+        finalStatus: {
+          type: String,
+          enum: ['PENDING', 'APPROVED', 'REJECTED'],
+          default: 'PENDING'
+        },
+        reviewComments: { type: String, default: '' },
+        reviewedAt: { type: Date }
+      }
+    ],
+    default: []
   }
 }, {
   timestamps: true

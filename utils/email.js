@@ -96,6 +96,19 @@ const wrapEmail = (title, bodyHtml) => `
   </div>
 `;
 
+const ABSTRACT_CATEGORY_LABELS = {
+  ORIGINAL_RESEARCH: 'Original Research',
+  CLINICAL_AUDIT_QUALITY_IMPROVEMENT: 'Clinical Audit / Quality Improvement',
+  CASE_REPORT_CASE_SERIES: 'Case Report / Case Series',
+  REVIEW_EDUCATIONAL_POSTER: 'Review / Educational Poster',
+  INNOVATIONS_IN_LABOUR_ANALGESIA_OBSTETRIC_ANAESTHESIA: 'Innovations in Labour Analgesia / Obstetric Anaesthesia',
+  PATIENT_SAFETY_IN_OBSTETRIC_ANAESTHESIA: 'Patient Safety in Obstetric Anaesthesia',
+  SIMULATION_TRAINING_INITIATIVES: 'Simulation / Training Initiatives',
+};
+
+const getAbstractCategoryLabel = (category) =>
+  ABSTRACT_CATEGORY_LABELS[category] || category || 'N/A';
+
 export const sendPasswordResetEmail = async ({ email, name, resetLink, isAdmin = false }) => {
   const title = isAdmin ? 'Admin Password Reset' : 'Password Reset';
   const subject = `AOACON 2026 ${isAdmin ? 'Admin ' : ''}Password Reset`;
@@ -252,13 +265,14 @@ export const sendPaymentSuccessEmail = async ({
 
 export const sendAbstractSubmittedEmail = async (abstract) => {
   const user = abstract.userId;
+  const categoryLabel = getAbstractCategoryLabel(abstract.category);
   const subject = 'AOACON 2026 Abstract Submitted';
   const text = [
     `Hello ${user.name},`,
     '',
     'Your abstract has been submitted for review.',
     `Title: ${abstract.title || 'N/A'}`,
-    `Category: ${abstract.category || 'N/A'}`,
+    `Category: ${categoryLabel}`,
     '',
     'You can track status from your dashboard.',
     '',
@@ -271,7 +285,7 @@ export const sendAbstractSubmittedEmail = async (abstract) => {
     <p style="margin:0 0 12px;">Your abstract has been submitted for review.</p>
     <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin:0 0 12px;">
       <div style="margin:0 0 6px;"><strong>Title:</strong> ${abstract.title || 'N/A'}</div>
-      <div style="margin:0;"><strong>Category:</strong> ${abstract.category || 'N/A'}</div>
+      <div style="margin:0;"><strong>Category:</strong> ${categoryLabel}</div>
     </div>
     <p style="margin:0;">You can track status from your dashboard.</p>
   `;
@@ -289,6 +303,7 @@ export const sendAbstractSubmittedEmail = async (abstract) => {
 export const sendAbstractReviewEmail = async (abstract) => {
   const user = abstract.userId;
   const status = abstract.status;
+  const categoryLabel = getAbstractCategoryLabel(abstract.category);
   const statusLabel = status === 'APPROVED' ? 'Approved' : 'Rejected';
   const subject = `AOACON 2026 Abstract ${statusLabel}`;
   const text = [
@@ -296,7 +311,7 @@ export const sendAbstractReviewEmail = async (abstract) => {
     '',
     `Your abstract has been ${statusLabel.toLowerCase()}.`,
     `Title: ${abstract.title || 'N/A'}`,
-    `Category: ${abstract.category || 'N/A'}`,
+    `Category: ${categoryLabel}`,
     abstract.reviewComments ? `Comments: ${abstract.reviewComments}` : null,
     '',
     'Thanks,',
@@ -314,7 +329,7 @@ export const sendAbstractReviewEmail = async (abstract) => {
     <p style="margin:0 0 12px;">Your abstract has been <strong>${statusLabel}</strong>.</p>
     <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin:0 0 12px;">
       <div style="margin:0 0 6px;"><strong>Title:</strong> ${abstract.title || 'N/A'}</div>
-      <div style="margin:0;"><strong>Category:</strong> ${abstract.category || 'N/A'}</div>
+      <div style="margin:0;"><strong>Category:</strong> ${categoryLabel}</div>
       ${commentsHtml}
     </div>
     <p style="margin:0;">You can view your abstract status in the dashboard.</p>
