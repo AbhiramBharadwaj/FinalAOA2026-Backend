@@ -10,7 +10,7 @@ const router = express.Router();
 const upload = multer();
 const COUPON_ENABLED = true;
 const COUPONS = {
-  AOACON500: { discount: 500 },
+  AOACON51000: { discount: 500 },
   // Example for future:
   DISCOUNT10002026: { discount: 1000 },
 };
