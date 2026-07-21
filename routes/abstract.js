@@ -329,6 +329,10 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
     const { status, reviewComments } = req.body;
     const abstractId = req.params.id;
 
+    if (!['PENDING', 'APPROVED', 'REJECTED'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid abstract review status' });
+    }
+
     logger.info(`${req.actorName || 'Admin'} reviewed an abstract with status ${status}.`);
     const abstract = await Abstract.findById(abstractId);
 
@@ -358,9 +362,7 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
     });
 
     try {
-      if (abstract.status === 'APPROVED' || abstract.status === 'REJECTED') {
-        await sendAbstractReviewEmail(abstract);
-      }
+      await sendAbstractReviewEmail(abstract);
     } catch (emailError) {
       logger.warn('Abstract review email failed to send.', { message: emailError?.message || emailError });
     }

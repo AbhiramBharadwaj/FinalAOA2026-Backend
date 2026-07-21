@@ -304,12 +304,31 @@ export const sendAbstractReviewEmail = async (abstract) => {
   const user = abstract.userId;
   const status = abstract.status;
   const categoryLabel = getAbstractCategoryLabel(abstract.category);
-  const statusLabel = status === 'APPROVED' ? 'Approved' : 'Rejected';
+  const statusConfig = {
+    PENDING: {
+      label: 'Pending Review',
+      message: 'Your abstract requires additional information before a final decision can be made.',
+    },
+    APPROVED: {
+      label: 'Approved',
+      message: 'Your abstract has been approved.',
+    },
+    REJECTED: {
+      label: 'Rejected',
+      message: 'Your abstract has been rejected.',
+    },
+  }[status];
+
+  if (!statusConfig) {
+    throw new Error(`Unsupported abstract review status: ${status}`);
+  }
+
+  const { label: statusLabel, message: statusMessage } = statusConfig;
   const subject = `AOACON 2026 Abstract ${statusLabel}`;
   const text = [
     `Hello ${user.name},`,
     '',
-    `Your abstract has been ${statusLabel.toLowerCase()}.`,
+    statusMessage,
     `Title: ${abstract.title || 'N/A'}`,
     `Category: ${categoryLabel}`,
     abstract.reviewComments ? `Comments: ${abstract.reviewComments}` : null,
@@ -326,7 +345,7 @@ export const sendAbstractReviewEmail = async (abstract) => {
 
   const bodyHtml = `
     <p style="margin:0 0 10px;">Hello ${user.name},</p>
-    <p style="margin:0 0 12px;">Your abstract has been <strong>${statusLabel}</strong>.</p>
+    <p style="margin:0 0 12px;">${statusMessage}</p>
     <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin:0 0 12px;">
       <div style="margin:0 0 6px;"><strong>Title:</strong> ${abstract.title || 'N/A'}</div>
       <div style="margin:0;"><strong>Category:</strong> ${categoryLabel}</div>
