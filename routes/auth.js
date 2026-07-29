@@ -9,6 +9,7 @@ import Admin from '../models/Admin.js';
 import { sendPasswordResetEmail, sendRegistrationEmail } from '../utils/email.js';
 import { authenticateUser } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
+import { getPublicUploadPath, getUploadDirectory } from '../utils/uploadStorage.js';
 
 const router = express.Router();
 
@@ -50,9 +51,9 @@ const createResetToken = () => {
 
 const getFrontendUrl = () => process.env.FRONTEND_URL || 'http://localhost:5173';
 
-const collegeLetterDir = 'uploads/college-letters';
 const collegeLetterStorage = multer.diskStorage({
   destination: (req, file, cb) => {
+    const collegeLetterDir = getUploadDirectory('college-letters');
     fs.mkdirSync(collegeLetterDir, { recursive: true });
     cb(null, collegeLetterDir);
   },
@@ -426,7 +427,7 @@ router.post('/profile/college-letter', authenticateUser, collegeLetterUpload.sin
       return res.status(400).json({ message: 'Recommendation letter is only required for PGS & Fellows' });
     }
 
-    user.collegeLetter = req.file.path;
+    user.collegeLetter = getPublicUploadPath('college-letters', req.file.filename);
     user.collegeLetterStatus = 'PENDING';
     user.collegeLetterReviewedAt = undefined;
     user.collegeLetterReviewedBy = undefined;

@@ -7,8 +7,17 @@ on:
 jobs:
   build:
     runs-on: self-hosted
+    env:
+      UPLOAD_ROOT: /home/ubuntu/aoa-data/uploads
 
     steps:
+    - name: Preserve uploads outside the Actions workspace
+      run: |
+        mkdir -p "$UPLOAD_ROOT"
+        if [ -d "$GITHUB_WORKSPACE/uploads" ]; then
+          cp -a "$GITHUB_WORKSPACE/uploads/." "$UPLOAD_ROOT/"
+        fi
+
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -23,4 +32,4 @@ jobs:
 
     - name: Start or Restart Application
       run: |
-        pm2 restart aoa-backend || pm2 start server.js --name "aoa-backend"
+        pm2 restart aoa-backend --update-env || pm2 start server.js --name "aoa-backend"

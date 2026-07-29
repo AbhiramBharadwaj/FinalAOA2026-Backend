@@ -7,13 +7,14 @@ import Registration from '../models/Registration.js';
 import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
 import { sendAbstractSubmittedEmail, sendAbstractReviewEmail } from '../utils/email.js';
 import logger from '../utils/logger.js';
+import { getPublicUploadPath, getUploadDirectory } from '../utils/uploadStorage.js';
 
 const router = express.Router();
 
 
-const abstractUploadDir = 'uploads/abstracts';
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
+    const abstractUploadDir = getUploadDirectory('abstracts');
     fs.mkdirSync(abstractUploadDir, { recursive: true });
     cb(null, abstractUploadDir);
   },
@@ -46,6 +47,9 @@ const upload = multer({
 const handleAbstractUpload = (req, res, next) => {
   upload.single('abstractFile')(req, res, (error) => {
     if (!error) {
+      if (req.file) {
+        req.file.path = getPublicUploadPath('abstracts', req.file.filename);
+      }
       console.log('[abstract.submit] Upload middleware completed', {
         userId: req.user?._id?.toString?.(),
         body: req.body,

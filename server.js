@@ -13,6 +13,7 @@ import paymentRoutes from './routes/payment.js';
 import attendanceRoutes from './routes/attendance.js';
 import healthRoutes from './routes/health.js';
 import logger from './utils/logger.js';
+import { getUploadRoot } from './utils/uploadStorage.js';
 dotenv.config();
 
 const app = express();
@@ -31,7 +32,7 @@ app.options('*', cors());
 
 app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
-app.use('/uploads', express.static('uploads'));
+app.use('/uploads', express.static(getUploadRoot()));
 app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
