@@ -185,7 +185,7 @@ router.post(
             { addAoaCourse: true },
           ],
         });
-        if (currentCount >= 40) {
+        if (currentCount >= 50) {
           return res.status(400).json({ message: 'AOA Certified Course seats are full' });
         }
       }
@@ -498,7 +498,7 @@ router.get('/pricing', authenticateUser, async (req, res) => {
       $or: [{ registrationType: 'AOA_CERTIFIED_COURSE' }, { addAoaCourse: true }],
     });
 
-    const aoaCourseFull = aoaCourseCount >= 40;
+    const aoaCourseFull = aoaCourseCount >= 50;
 
     res.json({
       bookingPhase,
@@ -539,7 +539,7 @@ router.get('/pricing', authenticateUser, async (req, res) => {
       meta: {
         aoaCourseCount,
         aoaCourseFull,
-        aoaCourseLimit: 40,
+        aoaCourseLimit: 50,
       },
     });
     logger.debug('registration.pricing.success', {
