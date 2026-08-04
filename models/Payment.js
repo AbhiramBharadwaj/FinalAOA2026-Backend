@@ -38,9 +38,19 @@ const paymentSchema = new mongoose.Schema({
   },
   razorpayPaymentId: String,
   razorpaySignature: String,
-  failureReason: String
+  failureReason: String,
+  providerAmount: Number,
+  providerCurrency: String,
+  providerCapturedAt: Date,
+  finalizedAt: Date,
+  finalizationSource: {
+    type: String,
+    enum: ['BROWSER', 'WEBHOOK', 'ADMIN', 'ORDER_RETRY', 'SCHEDULED', 'UNKNOWN'],
+  },
 }, {
   timestamps: true
 });
+
+paymentSchema.index({ razorpayOrderId: 1 }, { unique: true });
 
 export default mongoose.model('Payment', paymentSchema);

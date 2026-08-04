@@ -51,6 +51,11 @@ const accommodationBookingSchema = new mongoose.Schema({
   specialRequests: String,
   razorpayOrderId: String,
   razorpayPaymentId: String,
+  paymentEmailSentAt: Date,
+  paymentEmailSendingAt: Date,
+  paymentEmailFailedAt: Date,
+  paymentEmailError: String,
+  paymentOrderCreatingAt: Date,
   bookingNumber: {
     type: String,
     unique: true

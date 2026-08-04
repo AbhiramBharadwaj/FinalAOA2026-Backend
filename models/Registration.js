@@ -172,11 +172,17 @@ const registrationSchema = new mongoose.Schema(
     paymentEmailSentAt: {
       type: Date,
     },
+    paymentEmailSendingAt: {
+      type: Date,
+    },
     paymentEmailFailedAt: {
       type: Date,
     },
     paymentEmailError: {
       type: String,
+    },
+    paymentOrderCreatingAt: {
+      type: Date,
     },
     collegeLetter: {
       data: Buffer,
