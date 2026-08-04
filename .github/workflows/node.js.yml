@@ -25,10 +25,13 @@ jobs:
       run: npm install
 
     - name: Create .env file
+      env:
+        RAZORPAY_WEBHOOK_SECRET: ${{ secrets.RAZORPAY_WEBHOOK_SECRET }}
       run: |
         cat <<EOF > .env
         ${{ secrets.PROD_ENV_FILE }}
         EOF
+        printf '\nRAZORPAY_WEBHOOK_SECRET=%s\n' "$RAZORPAY_WEBHOOK_SECRET" >> .env
 
     - name: Start or Restart Application
       run: |

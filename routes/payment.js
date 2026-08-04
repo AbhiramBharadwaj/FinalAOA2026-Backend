@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from 'express';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
@@ -18,8 +19,10 @@ const razorpay = new Razorpay({
   key_id: "rzp_live_S1h8EPxjXzDsaM",
   key_secret: "sGAW1CE3Mnpus4PfYMdUAp8i"
 });
-const razorpayWebhookSecret =
-  process.env.RAZORPAY_WEBHOOK_SECRET || "sGAW1CE3Mnpus4PfYMdUAp8i";
+const razorpayWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
+if (!razorpayWebhookSecret) {
+  throw new Error('RAZORPAY_WEBHOOK_SECRET is required');
+}
 const finalizePayment = createPaymentFinalizer({ razorpay });
 
 const getFinalizationStatusCode = (error, fallback = 500) =>
