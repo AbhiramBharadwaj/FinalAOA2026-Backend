@@ -5,6 +5,7 @@ import { authenticateUser, requireProfileComplete } from '../middleware/auth.js'
 import { getBookingPhase, calculateRegistrationTotals, getAddOnPricing } from '../utils/pricing.js';
 import { generateLifetimeMembershipId } from '../utils/membershipGenerator.js';
 import logger from '../utils/logger.js';
+import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 const upload = multer();
@@ -319,13 +320,7 @@ router.post(
 
     } catch (error) {
       logger.error('Registration update failed.', { message: error?.message || error });
-      if (error.name === 'ValidationError') {
-        return res.status(400).json({
-          message: 'Validation failed',
-          errors: Object.values(error.errors).map((e) => e.message),
-        });
-      }
-      res.status(500).json({ message: 'Server error' });
+      return sendErrorResponse(res, error, 'Registration could not be saved. Please try again.');
     }
   }
 );
@@ -395,7 +390,7 @@ router.post('/apply-coupon', authenticateUser, requireProfileComplete, async (re
       requestId: req.requestId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Coupon could not be applied. Please try again.');
   }
 });
 
@@ -453,7 +448,7 @@ router.post('/validate-coupon', authenticateUser, requireProfileComplete, async 
       requestId: req.requestId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Coupon could not be validated. Please try again.');
   }
 });
 
@@ -480,7 +475,7 @@ router.get('/my-registration', authenticateUser, async (req, res) => {
       userId: req.user?._id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Registration details could not be loaded. Please try again.');
   }
 });
 
@@ -553,7 +548,7 @@ router.get('/pricing', authenticateUser, async (req, res) => {
       userId: req.user?._id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Registration pricing could not be loaded. Please try again.');
   }
 });
 

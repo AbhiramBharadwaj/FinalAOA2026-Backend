@@ -59,7 +59,7 @@ const userSchema = new mongoose.Schema({
   pincode: { 
     type: String,
     trim: true,
-    match: [/^\d{4,10}$/, 'Please enter valid pincode/zip (4-10 digits)']
+    match: [/^\d{4,10}$/, 'Enter a valid pincode containing 4-10 digits']
   },
   
   instituteHospital: {

@@ -5,6 +5,7 @@ import VideoSubmission from '../models/VideoSubmission.js';
 import Registration from '../models/Registration.js';
 import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
+import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
@@ -200,10 +201,7 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleVideoUplo
     });
   } catch (error) {
     logger.error('Video submission failed.', { message: error?.message || error });
-    if (error?.name === 'ValidationError') {
-      return res.status(400).json({ message: error.message });
-    }
-    res.status(500).json({ message: 'Server error during video submission' });
+    return sendErrorResponse(res, error, 'Video could not be submitted. Please try again.');
   }
 });
 
@@ -225,7 +223,7 @@ router.get('/my-video', authenticateUser, async (req, res) => {
       userId: req.user?._id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Video submission details could not be loaded. Please try again.');
   }
 });
 
@@ -269,7 +267,7 @@ router.get('/all', authenticateAdmin, async (req, res) => {
     res.json(submissionsWithRegistration);
   } catch (error) {
     logger.error('video.list.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Video submissions could not be loaded. Please try again.');
   }
 });
 
@@ -304,7 +302,7 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
     });
   } catch (error) {
     logger.error('Video review failed.', { message: error?.message || error });
-    res.status(500).json({ message: 'Server error during video review' });
+    return sendErrorResponse(res, error, 'Video review could not be saved. Please try again.');
   }
 });
 

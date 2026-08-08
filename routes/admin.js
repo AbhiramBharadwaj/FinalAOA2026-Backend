@@ -15,6 +15,7 @@ import { sendCollegeLetterReviewEmail, sendPasswordResetEmail, sendPaymentSucces
 import { calculateRegistrationTotals, getBookingPhase } from '../utils/pricing.js';
 import { buildRegistrationInvoicePdf } from '../utils/invoice.js';
 import logger from '../utils/logger.js';
+import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
@@ -290,7 +291,7 @@ router.get('/dashboard', authenticateAdmin, async (req, res) => {
 
   } catch (error) {
     logger.error('admin.dashboard.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Dashboard data could not be loaded. Please try again.');
   }
 });
 
@@ -324,7 +325,7 @@ router.get('/manual-registrations/availability', authenticateAdmin, async (req, 
       requestId: req.requestId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Registration availability could not be checked. Please try again.');
   }
 });
 
@@ -344,7 +345,7 @@ router.get('/counters/registration-number', authenticateAdmin, async (req, res) 
       requestId: req.requestId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Registration counter could not be loaded. Please try again.');
   }
 });
 
@@ -375,7 +376,7 @@ router.put('/counters/registration-number', authenticateAdmin, async (req, res) 
       requestId: req.requestId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Registration counter could not be updated. Please check the value and try again.');
   }
 });
 
@@ -443,7 +444,7 @@ router.post('/manual-registrations/quote', authenticateAdmin, async (req, res) =
       requestId: req.requestId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Registration quote could not be calculated. Please check the entered details.');
   }
 });
 
@@ -761,7 +762,7 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       return res.status(400).json({ message: 'Duplicate record detected. Please re-check inputs.' });
     }
     logger.error('admin.manual_registration.error', { requestId: req.requestId, message: error?.message || error });
-    return res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Manual registration could not be created. Please check the entered details.');
   }
 });
 
@@ -772,7 +773,7 @@ router.get('/export-attended', authenticateAdmin, async (req, res) => {
     // Implementation depends on your excel generation setup
     res.json({ message: 'Attended list export endpoint' });
   } catch (error) {
-    res.status(500).json({ message: 'Export failed' });
+    return sendErrorResponse(res, error, 'Attended registrations could not be exported. Please try again.');
   }
 });
 
@@ -781,7 +782,7 @@ router.get('/export-not-attended', authenticateAdmin, async (req, res) => {
     // Implementation for not attended export
     res.json({ message: 'Not attended list export endpoint' });
   } catch (error) {
-    res.status(500).json({ message: 'Export failed' });
+    return sendErrorResponse(res, error, 'Not-attended registrations could not be exported. Please try again.');
   }
 });
 
@@ -809,7 +810,7 @@ router.get('/registrations', authenticateAdmin, async (req, res) => {
     res.json(filteredRegistrations);
   } catch (error) {
     logger.error('admin.registrations.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Registrations could not be loaded. Please try again.');
   }
 });
 
@@ -837,7 +838,7 @@ router.delete('/registrations/:id', authenticateAdmin, async (req, res) => {
     });
   } catch (error) {
     logger.error('admin.registration_delete.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Registration could not be deleted. Please try again.');
   }
 });
 
@@ -923,7 +924,7 @@ router.post('/registrations/:id/resend-email', authenticateAdmin, async (req, re
       requestId: req.requestId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Unable to resend email.' });
+    return sendErrorResponse(res, error, 'Registration email could not be resent. Please check the recipient email and try again.');
   }
 });
 
@@ -944,7 +945,7 @@ router.get('/payments', authenticateAdmin, async (req, res) => {
     res.json(payments);
   } catch (error) {
     logger.error('admin.payments.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Payments could not be loaded. Please try again.');
   }
 });
 
@@ -973,7 +974,7 @@ router.get('/registrations', authenticateAdmin, async (req, res) => {
     res.json(filteredRegistrations);
   } catch (error) {
     logger.error('admin.registrations_by_role.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Registrations could not be filtered. Please try again.');
   }
 });
 
@@ -995,7 +996,7 @@ router.get('/payments', authenticateAdmin, async (req, res) => {
     res.json(payments);
   } catch (error) {
     logger.error('admin.payments_by_date.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Payments could not be filtered. Please try again.');
   }
 });
 
@@ -1007,7 +1008,7 @@ router.get('/users', authenticateAdmin, async (req, res) => {
     res.json(users);
   } catch (error) {
     logger.error('admin.users.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Users could not be loaded. Please try again.');
   }
 });
 
@@ -1045,7 +1046,7 @@ router.post('/college-letters/:userId/review', authenticateAdmin, async (req, re
     res.json({ message: 'Recommendation letter reviewed', user });
   } catch (error) {
     logger.error('admin.college_letter_review.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Recommendation letter review could not be saved. Please try again.');
   }
 });
 
@@ -1092,7 +1093,7 @@ router.delete('/users/:id', authenticateAdmin, async (req, res) => {
     });
   } catch (error) {
     logger.error('admin.user_delete.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'User could not be deleted. Please try again.');
   }
 });
 
@@ -1146,7 +1147,7 @@ router.post('/users/bulk-delete', authenticateAdmin, async (req, res) => {
     });
   } catch (error) {
     logger.error('admin.user_bulk_delete.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Selected users could not be deleted. Please try again.');
   }
 });
 
@@ -1162,7 +1163,7 @@ router.post('/accommodations', authenticateAdmin, async (req, res) => {
     });
   } catch (error) {
     logger.error('admin.accommodation_create.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Accommodation could not be created. Please check the entered details.');
   }
 });
 
@@ -1185,7 +1186,7 @@ router.put('/accommodations/:id', authenticateAdmin, async (req, res) => {
     });
   } catch (error) {
     logger.error('admin.accommodation_update.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Accommodation could not be updated. Please check the entered details.');
   }
 });
 
@@ -1205,7 +1206,7 @@ router.delete('/accommodations/:id', authenticateAdmin, async (req, res) => {
     res.json({ message: 'Accommodation deleted successfully' });
   } catch (error) {
     logger.error('admin.accommodation_delete.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Accommodation could not be deleted. Please try again.');
   }
 });
 
@@ -1223,7 +1224,7 @@ router.get('/accommodation-bookings', authenticateAdmin, async (req, res) => {
     res.json(bookings);
   } catch (error) {
     logger.error('admin.accommodation_bookings.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Accommodation bookings could not be loaded. Please try again.');
   }
 });
 

@@ -10,6 +10,7 @@ import { sendPasswordResetEmail, sendRegistrationEmail } from '../utils/email.js
 import { authenticateUser } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
 import { getPublicUploadPath, getUploadDirectory } from '../utils/uploadStorage.js';
+import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
@@ -181,10 +182,7 @@ router.post('/register', async (req, res) => {
     }
   } catch (error) {
     logger.error('Registration failed.', { message: error?.message || error });
-    if (error.code === 11000) {
-      return res.status(400).json({ message: 'Email or phone already registered' });
-    }
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Account creation failed. Please try again.');
   }
 });
 
@@ -236,7 +234,7 @@ router.post('/login', async (req, res) => {
 
   } catch (error) {
     logger.error('Login failed.', { message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Login could not be completed. Please try again.');
   }
 });
 
@@ -284,7 +282,7 @@ router.post('/forgot-password', async (req, res) => {
     return res.json({ message: 'If this email is registered, a reset link was sent.' });
   } catch (error) {
     logger.error('Password reset request failed.', { message: error?.message || error });
-    return res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Password reset email could not be sent. Please try again.');
   }
 });
 
@@ -320,7 +318,7 @@ router.post('/reset-password', async (req, res) => {
     return res.json({ message: 'Password updated successfully' });
   } catch (error) {
     logger.error('Password reset failed.', { message: error?.message || error });
-    return res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Password could not be updated. Please request a new reset link.');
   }
 });
 
@@ -401,10 +399,7 @@ router.put('/profile', authenticateUser, async (req, res) => {
     return res.json({ user });
   } catch (error) {
     logger.error('Profile update failed.', { message: error?.message || error });
-    if (error.code === 11000) {
-      return res.status(400).json({ message: 'Duplicate value not allowed' });
-    }
-    return res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Profile could not be saved. Please try again.');
   }
 });
 
@@ -439,7 +434,7 @@ router.post('/profile/college-letter', authenticateUser, collegeLetterUpload.sin
     return res.json({ user });
   } catch (error) {
     logger.error('College letter upload failed.', { message: error?.message || error });
-    return res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Recommendation letter could not be uploaded. Please try again.');
   }
 });
 
@@ -476,7 +471,7 @@ router.post('/admin/login', async (req, res) => {
     });
   } catch (error) {
     logger.error('Admin login failed.', { message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Admin login could not be completed. Please try again.');
   }
 });
 
@@ -524,7 +519,7 @@ router.post('/admin/forgot-password', async (req, res) => {
     return res.json({ message: 'If this email is registered, a reset link was sent.' });
   } catch (error) {
     logger.error('Admin password reset failed.', { message: error?.message || error });
-    return res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Password reset email could not be sent. Please try again.');
   }
 });
 
@@ -560,7 +555,7 @@ router.post('/admin/reset-password', async (req, res) => {
     return res.json({ message: 'Password updated successfully' });
   } catch (error) {
     logger.error('Admin password reset failed.', { message: error?.message || error });
-    return res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Password could not be updated. Please request a new reset link.');
   }
 });
 

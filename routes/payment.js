@@ -7,6 +7,7 @@ import AccommodationBooking from '../models/AccommodationBooking.js';
 import Payment from '../models/Payment.js';
 import { authenticateAdmin, authenticateUser, requireProfileComplete } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
+import { sendErrorResponse } from '../utils/httpError.js';
 import {
   createPaymentFinalizer,
   PaymentFinalizationError,
@@ -490,7 +491,7 @@ router.post('/failed', authenticateUser, async (req, res) => {
     res.json({ message: 'Payment failure recorded' });
   } catch (error) {
     logger.error('Failed to record payment failure.', { message: error?.message || error });
-    res.status(500).json({ message: 'Failed to record payment failure' });
+    return sendErrorResponse(res, error, 'Payment failure could not be recorded. Please do not retry payment until your payment status is checked.');
   }
 });
 

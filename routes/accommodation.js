@@ -3,6 +3,7 @@ import Accommodation from '../models/Accommodation.js';
 import AccommodationBooking from '../models/AccommodationBooking.js';
 import { authenticateUser, requireProfileComplete } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
+import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
@@ -26,7 +27,7 @@ router.get('/my-bookings', authenticateUser, async (req, res) => {
       userId: req.user?._id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Your accommodation bookings could not be loaded. Please try again.');
   }
 });
 
@@ -39,7 +40,7 @@ router.get('/', async (req, res) => {
     res.json(accommodations);
   } catch (error) {
     logger.error('accommodation.list.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Accommodation options could not be loaded. Please try again.');
   }
 });
 
@@ -59,7 +60,7 @@ router.get('/:id', async (req, res) => {
       accommodationId: req.params.id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Accommodation details could not be loaded. Please try again.');
   }
 });
 
@@ -123,7 +124,7 @@ router.post('/book', authenticateUser, requireProfileComplete, async (req, res) 
     });
   } catch (error) {
     logger.error('Accommodation booking failed.', { message: error?.message || error });
-    res.status(500).json({ message: 'Server error during booking' });
+    return sendErrorResponse(res, error, 'Accommodation booking could not be saved. Please try again.');
   }
 });
 

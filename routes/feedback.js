@@ -2,6 +2,7 @@ import express from 'express';
 import Feedback from '../models/Feedback.js';
 import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
+import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
@@ -61,7 +62,7 @@ router.post('/submit', authenticateUser, requireProfileComplete, async (req, res
     });
   } catch (error) {
     logger.error('Feedback submission failed.', { message: error?.message || error });
-    res.status(500).json({ message: 'Server error during feedback submission' });
+    return sendErrorResponse(res, error, 'Feedback could not be submitted. Please try again.');
   }
 });
 
@@ -87,7 +88,7 @@ router.get('/my-feedback', authenticateUser, async (req, res) => {
       userId: req.user?._id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Your feedback could not be loaded. Please try again.');
   }
 });
 
@@ -103,7 +104,7 @@ router.get('/all', authenticateAdmin, async (req, res) => {
     res.json(feedback);
   } catch (error) {
     logger.error('feedback.list.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Feedback entries could not be loaded. Please try again.');
   }
 });
 
@@ -143,7 +144,7 @@ router.get('/analytics', authenticateAdmin, async (req, res) => {
     res.json(result);
   } catch (error) {
     logger.error('feedback.analytics.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Feedback analytics could not be loaded. Please try again.');
   }
 });
 

@@ -14,6 +14,7 @@ import attendanceRoutes from './routes/attendance.js';
 import healthRoutes from './routes/health.js';
 import logger from './utils/logger.js';
 import { getUploadRoot } from './utils/uploadStorage.js';
+import { sendErrorResponse } from './utils/httpError.js';
 dotenv.config();
 
 const app = express();
@@ -65,7 +66,7 @@ app.use((err, req, res, next) => {
   if (res.headersSent) {
     return next(err);
   }
-  return res.status(500).json({ message: 'Server error' });
+  return sendErrorResponse(res, err);
 });
 
 app.listen(PORT, () => {

@@ -8,6 +8,7 @@ import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../
 import { sendAbstractSubmittedEmail, sendAbstractReviewEmail } from '../utils/email.js';
 import logger from '../utils/logger.js';
 import { getPublicUploadPath, getUploadDirectory } from '../utils/uploadStorage.js';
+import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
@@ -244,7 +245,7 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractU
       });
     }
 
-    res.status(500).json({ message: 'Server error during abstract submission' });
+    return sendErrorResponse(res, error, 'Abstract could not be submitted. Please try again.');
   }
 });
 
@@ -273,7 +274,7 @@ router.get('/my-abstract', authenticateUser, async (req, res) => {
       userId: req.user?._id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Abstract details could not be loaded. Please try again.');
   }
 });
 
@@ -323,7 +324,7 @@ router.get('/all', authenticateAdmin, async (req, res) => {
     res.json(abstractsWithRegistration);
   } catch (error) {
     logger.error('abstract.list.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Server error' });
+    return sendErrorResponse(res, error, 'Abstract submissions could not be loaded. Please try again.');
   }
 });
 
@@ -372,7 +373,7 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
     }
   } catch (error) {
     logger.error('Abstract review failed.', { message: error?.message || error });
-    res.status(500).json({ message: 'Server error during abstract review' });
+    return sendErrorResponse(res, error, 'Abstract review could not be saved. Please try again.');
   }
 });
 

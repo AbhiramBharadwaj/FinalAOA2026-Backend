@@ -5,6 +5,7 @@ import Attendance from '../models/Attendance.js';
 import jsPDF from 'jspdf';
 import { authenticateUser, authenticateAdmin } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
+import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
@@ -48,7 +49,7 @@ router.get('/my-qr', authenticateUser, async (req, res) => {
       userId: req.user?._id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Failed to fetch QR code' });
+    return sendErrorResponse(res, error, 'Your QR code could not be loaded. Please try again.');
   }
 });
 
@@ -110,7 +111,7 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
     });
   } catch (error) {
     logger.error('QR code generation failed.', { message: error?.message || error });
-    res.status(500).json({ message: 'Failed to generate QR code' });
+    return sendErrorResponse(res, error, 'Your QR code could not be generated. Please confirm that registration payment is complete.');
   }
 });
 
@@ -133,7 +134,7 @@ router.get('/', authenticateAdmin, async (req, res) => {
     res.json(attendances);
   } catch (error) {
     logger.error('attendance.list.error', { requestId: req.requestId, message: error?.message || error });
-    res.status(500).json({ message: 'Failed to fetch attendance records' });
+    return sendErrorResponse(res, error, 'Attendance records could not be loaded. Please try again.');
   }
 });
 
@@ -186,7 +187,7 @@ router.get('/qr-download/:attendanceId/:registrationNumber?', authenticateAdmin,
       attendanceId: req.params.attendanceId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'QR generation failed' });
+    return sendErrorResponse(res, error, 'QR code could not be generated. Please check the registration and try again.');
   }
 });
 
@@ -239,7 +240,7 @@ router.post('/scan/check', authenticateAdmin, async (req, res) => {
       adminId: req.admin?._id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Scan validation failed' });
+    return sendErrorResponse(res, error, 'QR code could not be validated. Please scan it again.');
   }
 });
 
@@ -292,7 +293,7 @@ router.post('/scan/mark', authenticateAdmin, async (req, res) => {
       adminId: req.admin?._id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Failed to mark attendance' });
+    return sendErrorResponse(res, error, 'Attendance could not be marked. Please scan the QR code again.');
   }
 });
 
@@ -351,7 +352,7 @@ router.get('/qr-download/:registrationId', authenticateAdmin, async (req, res) =
       registrationId: req.params.registrationId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'QR generation failed' });
+    return sendErrorResponse(res, error, 'QR code could not be generated. Please check the registration and try again.');
   }
 });
 
@@ -397,7 +398,7 @@ router.get('/my-qr', authenticateUser, async (req, res) => {
       userId: req.user?._id,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'QR fetch failed' });
+    return sendErrorResponse(res, error, 'QR code could not be loaded. Please check the registration and try again.');
   }
 });
 
@@ -460,7 +461,7 @@ router.post('/generate-qr/:registrationId', authenticateUser, async (req, res) =
       registrationId: req.params.registrationId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'QR generation failed' });
+    return sendErrorResponse(res, error, 'QR code could not be generated. Please check the registration and try again.');
   }
 });
 
@@ -549,7 +550,7 @@ router.get('/qr-bulk-pdf', authenticateAdmin, async (req, res) => {
       requestId: req.requestId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'PDF generation failed' });
+    return sendErrorResponse(res, error, 'QR PDF could not be generated. Please try again.');
   }
 });
 
@@ -588,7 +589,7 @@ router.get('/qr-details/:registrationId', authenticateAdmin, async (req, res) =>
       registrationId: req.params.registrationId,
       message: error?.message || error,
     });
-    res.status(500).json({ message: 'Details fetch failed' });
+    return sendErrorResponse(res, error, 'Attendance details could not be loaded. Please try again.');
   }
 });
 
