@@ -9,6 +9,7 @@ import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 const upload = multer();
+const AOA_COURSE_CAPACITY = 51;
 const COUPON_ENABLED = true;
 const COUPONS = {
   AOACON500: { discount: 500 },
@@ -186,7 +187,7 @@ router.post(
             { addAoaCourse: true },
           ],
         });
-        if (currentCount >= 50) {
+        if (currentCount >= AOA_COURSE_CAPACITY) {
           return res.status(400).json({ message: 'AOA Certified Course seats are full' });
         }
       }
@@ -493,7 +494,7 @@ router.get('/pricing', authenticateUser, async (req, res) => {
       $or: [{ registrationType: 'AOA_CERTIFIED_COURSE' }, { addAoaCourse: true }],
     });
 
-    const aoaCourseFull = aoaCourseCount >= 50;
+    const aoaCourseFull = aoaCourseCount >= AOA_COURSE_CAPACITY;
 
     res.json({
       bookingPhase,
@@ -534,7 +535,7 @@ router.get('/pricing', authenticateUser, async (req, res) => {
       meta: {
         aoaCourseCount,
         aoaCourseFull,
-        aoaCourseLimit: 50,
+        aoaCourseLimit: AOA_COURSE_CAPACITY,
       },
     });
     logger.debug('registration.pricing.success', {
