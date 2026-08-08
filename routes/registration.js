@@ -9,7 +9,7 @@ import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 const upload = multer();
-const AOA_COURSE_CAPACITY = 51;
+const AOA_COURSE_CAPACITY = 50;
 const COUPON_ENABLED = true;
 const COUPONS = {
   AOACON500: { discount: 500 },
