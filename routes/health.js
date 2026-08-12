@@ -1,8 +1,53 @@
 import express from 'express';
+import mongoose from 'mongoose';
 import { sendTestEmail } from '../utils/email.js';
 import logger from '../utils/logger.js';
 
 const router = express.Router();
+
+const requiredEnvironmentKeys = [
+  'RAZORPAY_WEBHOOK_SECRET',
+  'RESEND_API_KEY',
+  'RESEND_FROM',
+  'BUNNY_STORAGE_ZONE',
+  'BUNNY_STORAGE_PASSWORD',
+  'BUNNY_STORAGE_HOSTNAME',
+  'BUNNY_PUBLIC_BASE_URL',
+];
+
+router.get('/live', (req, res) =>
+  res.json({
+    status: 'ok',
+    service: 'aoacon-backend',
+    timestamp: new Date().toISOString(),
+  })
+);
+
+router.get('/ready', async (req, res) => {
+  const missingEnvironment = requiredEnvironmentKeys.filter((key) => !process.env[key]);
+  const databaseConnected = mongoose.connection.readyState === 1;
+  let databasePing = false;
+
+  if (databaseConnected) {
+    try {
+      await mongoose.connection.db.admin().ping();
+      databasePing = true;
+    } catch (error) {
+      logger.error('health.database_ping.error', { message: error?.message || error });
+    }
+  }
+
+  const ready = databaseConnected && databasePing && missingEnvironment.length === 0;
+  return res.status(ready ? 200 : 503).json({
+    status: ready ? 'ready' : 'not_ready',
+    checks: {
+      database: databasePing ? 'ok' : 'unavailable',
+      configuration: missingEnvironment.length === 0 ? 'ok' : 'incomplete',
+    },
+    missingEnvironment,
+    timestamp: new Date().toISOString(),
+  });
+});
 
 const requireHealthToken = (req, res, next) => {
   const expected = process.env.HEALTH_CHECK_TOKEN;

@@ -1,5 +1,6 @@
 import express from 'express';
 import crypto from 'crypto';
+import mongoose from 'mongoose';
 import QRCode from 'qrcode';
 import Registration from '../models/Registration.js';
 import Payment from '../models/Payment.js';
@@ -12,8 +13,15 @@ import Attendance from '../models/Attendance.js';
 import Counter from '../models/Counter.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { sendCollegeLetterReviewEmail, sendPasswordResetEmail, sendPaymentSuccessEmail } from '../utils/email.js';
-import { calculateRegistrationTotals, getBookingPhase } from '../utils/pricing.js';
+import { getBookingPhase } from '../utils/pricing.js';
 import { buildRegistrationInvoicePdf } from '../utils/invoice.js';
+import { generateLifetimeMembershipId } from '../utils/membershipGenerator.js';
+import {
+  AOA_COURSE_CAPACITY,
+  computeRegistrationTotals,
+  normalizeCouponCode,
+} from '../utils/registrationTotals.js';
+import { razorpay } from '../services/razorpayClient.js';
 import logger from '../utils/logger.js';
 import { sendErrorResponse } from '../utils/httpError.js';
 
@@ -382,7 +390,7 @@ router.put('/counters/registration-number', authenticateAdmin, async (req, res) 
 
 router.post('/manual-registrations/quote', authenticateAdmin, async (req, res) => {
   try {
-    const { role, bookingPhase, addWorkshop, addAoaCourse, addLifeMembership } = req.body;
+    const { role, bookingPhase, addWorkshop, addAoaCourse, addLifeMembership, couponCode } = req.body;
     if (!role) {
       return res.status(400).json({ message: 'Role is required.' });
     }
@@ -411,33 +419,53 @@ router.post('/manual-registrations/quote', authenticateAdmin, async (req, res) =
       });
     }
 
+    if (wantsAoaCourse) {
+      const aoaCourseSeatsUsed = await Registration.countDocuments({
+        addAoaCourse: true,
+        paymentStatus: 'PAID',
+      });
+      if (aoaCourseSeatsUsed >= AOA_COURSE_CAPACITY) {
+        return res.status(409).json({
+          message: `AOA Certified Course is full (${AOA_COURSE_CAPACITY}/${AOA_COURSE_CAPACITY}). Increase capacity before registering another attendee.`,
+          code: 'AOA_COURSE_FULL',
+        });
+      }
+    }
+
     const phase = bookingPhase || getBookingPhase();
-    const pricingTotals = calculateRegistrationTotals(normalizedRole, phase, {
+    const totals = computeRegistrationTotals({
+      role: normalizedRole,
+      bookingPhase: phase,
       addWorkshop: wantsWorkshop,
       addAoaCourse: wantsAoaCourse,
       addLifeMembership: wantsLifeMembership,
+      couponCode,
     });
 
-    if (!pricingTotals || pricingTotals.packageBase <= 0) {
+    if (!totals) {
       return res.status(400).json({ message: 'Pricing is not available for this selection.' });
     }
 
-    const totalBase = pricingTotals.packageBase;
-    const totalGST = Math.round(totalBase * 0.18);
-    const subtotalWithGST = totalBase + totalGST;
-    const processingFee = Math.round(subtotalWithGST * 0.0195);
-    const finalAmount = subtotalWithGST + processingFee;
+    if (normalizeCouponCode(couponCode) && !totals.couponCode) {
+      return res.status(400).json({ message: 'Invalid coupon code.' });
+    }
+
+    const aoaCourseSeatsUsed = wantsAoaCourse
+      ? await Registration.countDocuments({ addAoaCourse: true, paymentStatus: 'PAID' })
+      : 0;
 
     res.json({
-      bookingPhase: phase,
-      basePrice: pricingTotals.basePrice,
-      workshopAddOn: pricingTotals.workshopAddOn,
-      aoaCourseAddOn: pricingTotals.aoaCourseAddOn,
-      lifeMembershipAddOn: pricingTotals.lifeMembershipAddOn,
-      totalBase,
-      totalGST,
-      processingFee,
-      totalAmount: finalAmount,
+      ...totals,
+      aoaCourseAddOn: totals.aoaCourseBase,
+      lifeMembershipAddOn: totals.lifeMembershipBase,
+      aoaCourseAvailability: wantsAoaCourse
+        ? {
+            capacity: AOA_COURSE_CAPACITY,
+            used: aoaCourseSeatsUsed,
+            remaining: Math.max(0, AOA_COURSE_CAPACITY - aoaCourseSeatsUsed),
+            available: aoaCourseSeatsUsed < AOA_COURSE_CAPACITY,
+          }
+        : null,
     });
   } catch (error) {
     logger.error('admin.manual_registration_quote.error', {
@@ -475,11 +503,49 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       preferredRegistrationNumber,
       rangeStart,
       rangeEnd,
-      utr,
+      couponCode,
+      paymentMethod,
+      razorpayPaymentId,
+      razorpayOrderId,
+      paymentReference,
+      paymentDate,
+      amountReceived,
+      paymentNotes,
+      manualRegistrationNotes,
+      confirmPaymentReceived,
     } = req.body;
 
     if (!name || !email || !phone || !role) {
       return res.status(400).json({ message: 'Name, email, phone, and role are required.' });
+    }
+
+    if (confirmPaymentReceived !== true && confirmPaymentReceived !== 'true') {
+      return res.status(400).json({
+        message: 'Confirm that payment has been received before creating a paid registration.',
+      });
+    }
+
+    const normalizedPaymentMethod = String(paymentMethod || '').trim().toUpperCase();
+    const validPaymentMethods = ['RAZORPAY', 'UPI', 'BANK_TRANSFER', 'CASH', 'OTHER'];
+    if (!validPaymentMethods.includes(normalizedPaymentMethod)) {
+      return res.status(400).json({ message: 'Select a valid payment method.' });
+    }
+    if (normalizedPaymentMethod === 'RAZORPAY' && !razorpayPaymentId) {
+      return res.status(400).json({ message: 'Razorpay Payment ID is required.' });
+    }
+    if (!['RAZORPAY', 'CASH'].includes(normalizedPaymentMethod) && !paymentReference) {
+      return res.status(400).json({ message: 'Payment reference number is required.' });
+    }
+    if (normalizedPaymentMethod === 'CASH' && !paymentNotes) {
+      return res.status(400).json({ message: 'Payment notes are required for cash payments.' });
+    }
+
+    const paidAt = new Date(paymentDate);
+    if (!paymentDate || Number.isNaN(paidAt.getTime())) {
+      return res.status(400).json({ message: 'A valid payment date is required.' });
+    }
+    if (paidAt.getTime() > Date.now() + 5 * 60 * 1000) {
+      return res.status(400).json({ message: 'Payment date cannot be in the future.' });
     }
 
     const normalizedRole = String(role).trim().toUpperCase();
@@ -508,6 +574,19 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       return res.status(400).json({
         message: 'AOA members can choose either Workshop or AOA Certified Course.',
       });
+    }
+
+    if (wantsAoaCourse) {
+      const aoaCourseSeatsUsed = await Registration.countDocuments({
+        addAoaCourse: true,
+        paymentStatus: 'PAID',
+      });
+      if (aoaCourseSeatsUsed >= AOA_COURSE_CAPACITY) {
+        return res.status(409).json({
+          message: `AOA Certified Course is full (${AOA_COURSE_CAPACITY}/${AOA_COURSE_CAPACITY}). Increase capacity before registering another attendee.`,
+          code: 'AOA_COURSE_FULL',
+        });
+      }
     }
 
     const requiredFields = [
@@ -558,22 +637,70 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
     const { registrationNumber, seq } = await findNextAvailableRegistration(startSeq);
 
     const phase = bookingPhase || getBookingPhase();
-    const pricingTotals = calculateRegistrationTotals(normalizedRole, phase, {
+    const totals = computeRegistrationTotals({
+      role: normalizedRole,
+      bookingPhase: phase,
       addWorkshop: wantsWorkshop,
       addAoaCourse: wantsAoaCourse,
       addLifeMembership: wantsLifeMembership,
+      couponCode,
     });
 
-    if (!pricingTotals || pricingTotals.packageBase <= 0) {
+    if (!totals) {
       return res.status(400).json({ message: 'Pricing is not available for this selection.' });
     }
+    if (normalizeCouponCode(couponCode) && !totals.couponCode) {
+      return res.status(400).json({ message: 'Invalid coupon code.' });
+    }
 
-    const accompanyingBase = 0;
-    const totalBase = pricingTotals.packageBase + accompanyingBase;
-    const totalGST = Math.round(totalBase * 0.18);
-    const subtotalWithGST = totalBase + totalGST;
-    const processingFee = Math.round(subtotalWithGST * 0.0195);
-    const finalAmount = subtotalWithGST + processingFee;
+    const receivedAmount = Number(amountReceived);
+    if (!Number.isFinite(receivedAmount) || receivedAmount !== totals.totalAmount) {
+      return res.status(400).json({
+        message: `Amount received must exactly match the calculated total of INR ${totals.totalAmount}.`,
+        expectedAmount: totals.totalAmount,
+      });
+    }
+
+    let verifiedProviderPayment = null;
+    if (razorpayPaymentId) {
+      try {
+        verifiedProviderPayment = await razorpay.payments.fetch(String(razorpayPaymentId).trim());
+      } catch (verificationError) {
+        logger.warn('manual_registration.razorpay_lookup_failed', {
+          paymentId: razorpayPaymentId,
+          message: verificationError?.message || verificationError,
+        });
+        return res.status(400).json({ message: 'Razorpay could not verify this Payment ID.' });
+      }
+      if (verifiedProviderPayment.status !== 'captured') {
+        return res.status(400).json({ message: 'The Razorpay payment has not been captured.' });
+      }
+      if (verifiedProviderPayment.currency !== 'INR' || verifiedProviderPayment.amount !== totals.totalAmount * 100) {
+        return res.status(400).json({ message: 'Razorpay amount or currency does not match this registration.' });
+      }
+      if (razorpayOrderId && verifiedProviderPayment.order_id !== String(razorpayOrderId).trim()) {
+        return res.status(400).json({ message: 'Razorpay Order ID does not match the payment.' });
+      }
+    }
+
+    const effectivePaymentId = verifiedProviderPayment?.id || undefined;
+    const effectiveOrderId =
+      verifiedProviderPayment?.order_id ||
+      (razorpayOrderId ? String(razorpayOrderId).trim() : null) ||
+      `manual_${Date.now()}_${registrationNumber}`;
+
+    const duplicatePayment = await Payment.findOne({
+      $or: [
+        ...(effectivePaymentId ? [{ razorpayPaymentId: effectivePaymentId }] : []),
+        { razorpayOrderId: effectiveOrderId },
+        ...(paymentReference
+          ? [{ paymentMethod: normalizedPaymentMethod, paymentReference: String(paymentReference).trim() }]
+          : []),
+      ],
+    }).lean();
+    if (duplicatePayment) {
+      return res.status(409).json({ message: 'This payment has already been used for a registration.' });
+    }
 
     const userPayload = {
       name: String(name).trim(),
@@ -601,71 +728,116 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       registrationType: wantsWorkshop ? 'WORKSHOP_CONFERENCE' : 'CONFERENCE_ONLY',
       addWorkshop: wantsWorkshop,
       selectedWorkshop: wantsWorkshop ? selectedWorkshop : null,
-      workshopAddOn: pricingTotals.workshopAddOn,
+      workshopAddOn: totals.workshopAddOn,
       accompanyingPersons: 0,
-      accompanyingBase,
+      accompanyingBase: 0,
       accompanyingGST: 0,
       addAoaCourse: wantsAoaCourse,
-      aoaCourseBase: pricingTotals.aoaCourseAddOn,
-      aoaCourseGST: pricingTotals.aoaCourseAddOn > 0 ? Math.round(pricingTotals.aoaCourseAddOn * 0.18) : 0,
+      aoaCourseBase: totals.aoaCourseBase,
+      aoaCourseGST: totals.aoaCourseGST,
       addLifeMembership: wantsLifeMembership,
-      lifeMembershipBase: pricingTotals.lifeMembershipAddOn,
+      lifeMembershipBase: totals.lifeMembershipBase,
+      lifetimeMembershipId: wantsLifeMembership ? generateLifetimeMembershipId() : undefined,
       bookingPhase: phase,
-      basePrice: pricingTotals.basePrice,
-      packageBase: pricingTotals.packageBase,
-      packageGST: pricingTotals.gst,
-      totalBase,
-      totalGST,
-      subtotalWithGST,
-      processingFee,
-      totalAmount: finalAmount,
-      totalPaid: finalAmount,
+      basePrice: totals.basePrice,
+      packageBase: totals.packageBase,
+      packageGST: totals.packageGST,
+      totalBase: totals.totalBase,
+      totalGST: totals.totalGST,
+      subtotalWithGST: totals.subtotalWithGST,
+      processingFee: totals.processingFee,
+      totalAmount: totals.totalAmount,
+      totalPaid: totals.totalAmount,
+      couponCode: totals.couponCode,
+      couponDiscount: totals.couponDiscount,
+      couponAppliedAt: totals.couponCode ? new Date() : undefined,
       paymentStatus: 'PAID',
       registrationNumber,
-      razorpayPaymentId: utr || undefined,
-      razorpayOrderId: `manual_${Date.now()}_${registrationNumber}`,
+      razorpayPaymentId: effectivePaymentId,
+      razorpayOrderId: effectiveOrderId,
+      isManualRegistration: true,
+      createdByAdmin: req.admin._id,
+      manualRegistrationNotes: manualRegistrationNotes || undefined,
     };
 
-    let user = existingUser;
-    if (user) {
-      Object.assign(user, userPayload);
-      if (!user.password) {
-        user.password = crypto.randomBytes(10).toString('hex');
-      }
-      user = await user.save();
-    } else {
-      const tempPassword = crypto.randomBytes(10).toString('hex');
-      user = await User.create({ ...userPayload, password: tempPassword });
+    const session = await mongoose.startSession();
+    let user;
+    let registration;
+    let attendance;
+    let payment;
+    try {
+      await session.withTransaction(async () => {
+        if (wantsAoaCourse) {
+          const seatsUsed = await Registration.countDocuments({
+            addAoaCourse: true,
+            paymentStatus: 'PAID',
+          }).session(session);
+          if (seatsUsed >= AOA_COURSE_CAPACITY) {
+            const capacityError = new Error('AOA Certified Course became full before the registration was saved.');
+            capacityError.statusCode = 409;
+            throw capacityError;
+          }
+        }
+
+        user = existingUser;
+        if (user) {
+          Object.assign(user, userPayload);
+          if (!user.password) user.password = crypto.randomBytes(10).toString('hex');
+          await user.save({ session });
+        } else {
+          [user] = await User.create(
+            [{ ...userPayload, password: crypto.randomBytes(10).toString('hex') }],
+            { session }
+          );
+        }
+
+        [registration] = await Registration.create(
+          [{ userId: user._id, ...registrationPayload }],
+          { session }
+        );
+
+        await Counter.findOneAndUpdate(
+          { name: 'registrationNumber' },
+          { $max: { seq } },
+          { upsert: true, session }
+        );
+
+        [attendance] = await Attendance.create(
+          [{ registrationId: registration._id, qrCodeData: registration.registrationNumber }],
+          { session }
+        );
+
+        [payment] = await Payment.create(
+          [{
+            userId: user._id,
+            registrationId: registration._id,
+            amount: totals.totalAmount,
+            currency: 'INR',
+            status: 'SUCCESS',
+            paymentType: 'REGISTRATION',
+            razorpayOrderId: registrationPayload.razorpayOrderId,
+            razorpayPaymentId: effectivePaymentId,
+            paymentMethod: normalizedPaymentMethod,
+            paymentReference: paymentReference ? String(paymentReference).trim() : undefined,
+            paymentDate: paidAt,
+            isManual: true,
+            providerVerified: Boolean(verifiedProviderPayment),
+            recordedBy: req.admin._id,
+            recordingNotes: paymentNotes || undefined,
+            providerAmount: verifiedProviderPayment?.amount,
+            providerCurrency: verifiedProviderPayment?.currency,
+            providerCapturedAt: verifiedProviderPayment?.created_at
+              ? new Date(verifiedProviderPayment.created_at * 1000)
+              : undefined,
+            finalizedAt: new Date(),
+            finalizationSource: 'ADMIN',
+          }],
+          { session }
+        );
+      });
+    } finally {
+      await session.endSession();
     }
-
-    const registration = await Registration.create({
-      userId: user._id,
-      ...registrationPayload,
-    });
-
-    const counter = await Counter.findOne({ name: 'registrationNumber' });
-    if (!counter) {
-      await Counter.create({ name: 'registrationNumber', seq });
-    } else if (seq > (counter.seq || 0)) {
-      counter.seq = seq;
-      await counter.save();
-    }
-
-    const attendance = await Attendance.create({
-      registrationId: registration._id,
-      qrCodeData: registration.registrationNumber,
-    });
-
-    await Payment.create({
-      userId: user._id,
-      registrationId: registration._id,
-      amount: finalAmount,
-      currency: 'INR',
-      status: 'SUCCESS',
-      paymentType: 'REGISTRATION',
-      razorpayOrderId: registrationPayload.razorpayOrderId,
-      razorpayPaymentId: utr || undefined,
-    });
 
     const { rawToken, tokenHash, expiresAt } = createResetToken();
     user.resetPasswordToken = tokenHash;
@@ -675,6 +847,7 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       user.email
     )}`;
 
+    let resetEmailSent = false;
     try {
       await sendPasswordResetEmail({
         email: user.email,
@@ -686,6 +859,7 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       user.resetEmailFailedAt = undefined;
       user.resetEmailError = undefined;
       await user.save();
+      resetEmailSent = true;
     } catch (emailError) {
       user.resetEmailFailedAt = new Date();
       user.resetEmailError = emailError?.message || String(emailError);
@@ -696,6 +870,7 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       });
     }
 
+    let paymentEmailSent = false;
     try {
       const qrBuffer = await QRCode.toBuffer(attendance.qrCodeData, {
         width: 512,
@@ -703,14 +878,14 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
         color: { dark: '#005aa9', light: '#ffffff' },
       });
       const invoiceBuffer = buildRegistrationInvoicePdf(registration, user, {
-        paymentId: registration.razorpayPaymentId || utr || 'Manual',
-        paidAt: new Date(),
+        paymentId: registration.razorpayPaymentId || payment.paymentReference || 'Manual',
+        paidAt,
       });
 
       const summaryLines = [
         `Registration No: ${registration.registrationNumber || 'N/A'}`,
         `Package: ${buildRegistrationLabel(registration)}`,
-        `Amount Paid: INR ${Number(finalAmount || 0).toLocaleString('en-IN')}`,
+        `Amount Paid: INR ${Number(totals.totalAmount || 0).toLocaleString('en-IN')}`,
         'Payment Status: PAID',
       ];
       if (registration.couponCode && registration.couponDiscount) {
@@ -741,6 +916,7 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
         paymentEmailFailedAt: null,
         paymentEmailError: null,
       });
+      paymentEmailSent = true;
     } catch (emailError) {
       await Registration.findByIdAndUpdate(registration._id, {
         paymentEmailFailedAt: new Date(),
@@ -755,9 +931,26 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
     return res.status(201).json({
       message: 'Manual registration created successfully.',
       registration,
-      user,
+      user: {
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+      },
+      payment: {
+        method: payment.paymentMethod,
+        reference: payment.paymentReference,
+        paymentId: payment.razorpayPaymentId,
+        amount: payment.amount,
+        paymentDate: payment.paymentDate,
+        providerVerified: payment.providerVerified,
+      },
+      emailDelivery: { resetEmailSent, paymentEmailSent },
     });
   } catch (error) {
+    if (error?.statusCode) {
+      return res.status(error.statusCode).json({ message: error.message });
+    }
     if (error?.code === 11000) {
       return res.status(400).json({ message: 'Duplicate record detected. Please re-check inputs.' });
     }

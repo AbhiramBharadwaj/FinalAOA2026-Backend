@@ -184,6 +184,18 @@ const registrationSchema = new mongoose.Schema(
     paymentOrderCreatingAt: {
       type: Date,
     },
+    isManualRegistration: {
+      type: Boolean,
+      default: false,
+    },
+    createdByAdmin: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
+    },
+    manualRegistrationNotes: {
+      type: String,
+      trim: true,
+    },
     collegeLetter: {
       data: Buffer,
       contentType: String,

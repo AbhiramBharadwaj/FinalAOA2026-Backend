@@ -38,6 +38,25 @@ const paymentSchema = new mongoose.Schema({
   },
   razorpayPaymentId: String,
   razorpaySignature: String,
+  paymentMethod: {
+    type: String,
+    enum: ['RAZORPAY', 'UPI', 'BANK_TRANSFER', 'CASH', 'OTHER'],
+  },
+  paymentReference: String,
+  paymentDate: Date,
+  isManual: {
+    type: Boolean,
+    default: false,
+  },
+  providerVerified: {
+    type: Boolean,
+    default: false,
+  },
+  recordedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin',
+  },
+  recordingNotes: String,
   failureReason: String,
   providerAmount: Number,
   providerCurrency: String,
@@ -52,5 +71,7 @@ const paymentSchema = new mongoose.Schema({
 });
 
 paymentSchema.index({ razorpayOrderId: 1 }, { unique: true });
+paymentSchema.index({ razorpayPaymentId: 1 }, { sparse: true });
+paymentSchema.index({ paymentReference: 1 }, { sparse: true });
 
 export default mongoose.model('Payment', paymentSchema);

@@ -4,18 +4,18 @@ import Registration from '../models/Registration.js';
 import { authenticateUser, requireProfileComplete } from '../middleware/auth.js';
 import { getBookingPhase, calculateRegistrationTotals, getAddOnPricing } from '../utils/pricing.js';
 import { generateLifetimeMembershipId } from '../utils/membershipGenerator.js';
+import {
+  AOA_COURSE_CAPACITY,
+  COUPON_ENABLED,
+  computeRegistrationTotals,
+  normalizeCouponCode,
+  resolveCouponDiscount,
+} from '../utils/registrationTotals.js';
 import logger from '../utils/logger.js';
 import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 const upload = multer();
-const AOA_COURSE_CAPACITY = 51;
-const COUPON_ENABLED = true;
-const COUPONS = {
-  AOACON500: { discount: 500 },
-  // Example for future:
-  DISCOUNT10002026: { discount: 1000 },
-};
 
 const normalizeRole = (role) => {
   if (!role) return role;
@@ -30,80 +30,6 @@ const normalizeRole = (role) => {
   return trimmed;
 };
 
-const normalizeCouponCode = (code) =>
-  code ? String(code).trim().toUpperCase() : '';
-
-const resolveCouponDiscount = (code, basePrice) => {
-  const normalized = normalizeCouponCode(code);
-  if (!normalized) {
-    return { code: null, discount: 0 };
-  }
-  const config = COUPONS[normalized];
-  if (!config) {
-    return { code: null, discount: 0 };
-  }
-  const discount = Math.max(0, Math.min(config.discount, Number(basePrice || 0)));
-  return { code: normalized, discount };
-};
-
-const computeTotalsForRegistration = ({
-  role,
-  bookingPhase,
-  addWorkshop,
-  addAoaCourse,
-  addLifeMembership,
-  accompanyingPersons = 0,
-  couponCode,
-}) => {
-  const pricingTotals = calculateRegistrationTotals(role, bookingPhase, {
-    addWorkshop,
-    addAoaCourse,
-    addLifeMembership,
-  });
-
-  if (!pricingTotals || pricingTotals.packageBase <= 0) {
-    return null;
-  }
-
-  const accompanyingCount = parseInt(accompanyingPersons, 10) || 0;
-  const accompanyingBase = accompanyingCount * 7000;
-  const basePrice = pricingTotals.basePrice || 0;
-
-  const resolved = couponCode ? resolveCouponDiscount(couponCode, basePrice) : { code: null, discount: 0 };
-  const couponCodeFinal = resolved.code;
-  const couponDiscount = resolved.discount;
-
-  const discountedBasePrice = Math.max(0, basePrice - couponDiscount);
-  const packageBase =
-    discountedBasePrice +
-    (pricingTotals.workshopAddOn || 0) +
-    (pricingTotals.aoaCourseAddOn || 0) +
-    (pricingTotals.lifeMembershipAddOn || 0);
-  const totalBase = packageBase + accompanyingBase;
-  const totalGST = Math.round(totalBase * 0.18);
-  const subtotalWithGST = totalBase + totalGST;
-  const processingFee = Math.round(subtotalWithGST * 0.0195);
-  const finalAmount = subtotalWithGST + processingFee;
-
-  return {
-    basePrice,
-    packageBase,
-    packageGST: Math.round(packageBase * 0.18),
-    totalBase,
-    totalGST,
-    subtotalWithGST,
-    processingFee,
-    totalAmount: finalAmount,
-    workshopAddOn: pricingTotals.workshopAddOn,
-    aoaCourseBase: pricingTotals.aoaCourseAddOn,
-    aoaCourseGST: pricingTotals.aoaCourseAddOn > 0 ? Math.round(pricingTotals.aoaCourseAddOn * 0.18) : 0,
-    lifeMembershipBase: pricingTotals.lifeMembershipAddOn,
-    accompanyingBase,
-    accompanyingGST: Math.round(accompanyingBase * 0.18),
-    couponCode: couponCodeFinal,
-    couponDiscount,
-  };
-};
 
 router.post(
   '/',
@@ -405,7 +331,7 @@ router.post('/validate-coupon', authenticateUser, requireProfileComplete, async 
     const normalizedRole = normalizeRole(req.user.role);
     const bookingPhase = registration.bookingPhase || getBookingPhase();
 
-    const totals = computeTotalsForRegistration({
+    const totals = computeRegistrationTotals({
       role: normalizedRole,
       bookingPhase,
       addWorkshop: registration.addWorkshop,

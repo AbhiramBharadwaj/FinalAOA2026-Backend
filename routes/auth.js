@@ -11,6 +11,12 @@ import { authenticateUser } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
 import { getPublicUploadPath, getUploadDirectory } from '../utils/uploadStorage.js';
 import { sendErrorResponse } from '../utils/httpError.js';
+import {
+  accountRegistrationLimiter,
+  adminLoginLimiter,
+  passwordResetLimiter,
+  userLoginLimiter,
+} from '../middleware/rateLimits.js';
 
 const router = express.Router();
 
@@ -84,7 +90,7 @@ const isProfileComplete = (userData) => {
   return true;
 };
 
-router.post('/register', async (req, res) => {
+router.post('/register', accountRegistrationLimiter, async (req, res) => {
   try {
     const {
       name, email, phone, password, role, 
@@ -187,7 +193,7 @@ router.post('/register', async (req, res) => {
 });
 
 
-router.post('/login', async (req, res) => {
+router.post('/login', userLoginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -238,7 +244,7 @@ router.post('/login', async (req, res) => {
   }
 });
 
-router.post('/forgot-password', async (req, res) => {
+router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
   try {
     const email = normalizeString(req.body.email)?.toLowerCase();
     if (!email) {
@@ -439,7 +445,7 @@ router.post('/profile/college-letter', authenticateUser, collegeLetterUpload.sin
 });
 
 
-router.post('/admin/login', async (req, res) => {
+router.post('/admin/login', adminLoginLimiter, async (req, res) => {
   try {
     const { email, password } = req.body;
 
@@ -475,7 +481,7 @@ router.post('/admin/login', async (req, res) => {
   }
 });
 
-router.post('/admin/forgot-password', async (req, res) => {
+router.post('/admin/forgot-password', passwordResetLimiter, async (req, res) => {
   try {
     const email = normalizeString(req.body.email)?.toLowerCase();
     if (!email) {

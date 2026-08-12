@@ -18,7 +18,11 @@ import { sendErrorResponse } from './utils/httpError.js';
 dotenv.config();
 
 const app = express();
-const PORT = 5050;
+const PORT = Number(process.env.PORT) || 5050;
+
+// Production traffic reaches Express through one reverse proxy (Nginx).
+// This allows rate limiting to use the actual client IP from X-Forwarded-For.
+app.set('trust proxy', 1);
 
 // Replace app.use(cors()) with this:
 app.use(cors({

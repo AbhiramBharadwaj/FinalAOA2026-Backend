@@ -1,6 +1,5 @@
 import 'dotenv/config';
 import express from 'express';
-import Razorpay from 'razorpay';
 import crypto from 'crypto';
 import Registration from '../models/Registration.js';
 import AccommodationBooking from '../models/AccommodationBooking.js';
@@ -12,14 +11,21 @@ import {
   createPaymentFinalizer,
   PaymentFinalizationError,
 } from '../services/paymentFinalization.js';
+import {
+  razorpay,
+  RAZORPAY_KEY_ID,
+  RAZORPAY_KEY_SECRET,
+} from '../services/razorpayClient.js';
 
 const router = express.Router();
 const ORDER_CREATION_LOCK_MS = 60 * 1000;
 
-const razorpay = new Razorpay({
-  key_id: "rzp_live_S1h8EPxjXzDsaM",
-  key_secret: "sGAW1CE3Mnpus4PfYMdUAp8i"
-});
+const accommodationPaymentsDisabled = (req, res) =>
+  res.status(410).json({
+    message: 'Online accommodation payments are currently unavailable.',
+    code: 'ACCOMMODATION_PAYMENT_DISABLED',
+  });
+
 const razorpayWebhookSecret = process.env.RAZORPAY_WEBHOOK_SECRET;
 if (!razorpayWebhookSecret) {
   throw new Error('RAZORPAY_WEBHOOK_SECRET is required');
@@ -151,7 +157,7 @@ router.post('/create-order/registration', authenticateUser, requireProfileComple
         orderId: reusableOrder.id,
         amount: balanceDue,
         currency: reusableOrder.currency || 'INR',
-        keyId: "rzp_live_S1h8EPxjXzDsaM",
+        keyId: RAZORPAY_KEY_ID,
         reused: true,
       });
     }
@@ -188,7 +194,7 @@ router.post('/create-order/registration', authenticateUser, requireProfileComple
       orderId: order.id,
       amount: balanceDue,
       currency: 'INR',
-      keyId: "rzp_live_S1h8EPxjXzDsaM"
+      keyId: RAZORPAY_KEY_ID
     });
   } catch (error) {
     logger.error('Registration payment order failed.', { message: error?.message || error });
@@ -209,7 +215,7 @@ router.post('/create-order/registration', authenticateUser, requireProfileComple
 });
 
 
-router.post('/create-order/accommodation', authenticateUser, requireProfileComplete, async (req, res) => {
+router.post('/create-order/accommodation', accommodationPaymentsDisabled, authenticateUser, requireProfileComplete, async (req, res) => {
   let lockedBookingId;
   try {
     const { bookingId } = req.body;
@@ -258,7 +264,7 @@ router.post('/create-order/accommodation', authenticateUser, requireProfileCompl
         orderId: reusableOrder.id,
         amount: booking.totalAmount,
         currency: reusableOrder.currency || 'INR',
-        keyId: "rzp_live_S1h8EPxjXzDsaM",
+        keyId: RAZORPAY_KEY_ID,
         reused: true,
       });
     }
@@ -296,7 +302,7 @@ router.post('/create-order/accommodation', authenticateUser, requireProfileCompl
       orderId: order.id,
       amount: booking.totalAmount,
       currency: 'INR',
-      keyId: "rzp_live_S1h8EPxjXzDsaM"
+      keyId: RAZORPAY_KEY_ID
     });
   } catch (error) {
     logger.error('Accommodation payment order failed.', { message: error?.message || error });
@@ -328,7 +334,7 @@ router.post('/verify', authenticateUser, async (req, res) => {
     logger.info(`Payment verification started for order ${razorpay_order_id}.`);
     const body = razorpay_order_id + "|" + razorpay_payment_id;
     const expectedSignature = crypto
-      .createHmac('sha256', "sGAW1CE3Mnpus4PfYMdUAp8i")
+      .createHmac('sha256', RAZORPAY_KEY_SECRET)
       .update(body.toString())
       .digest('hex');
 

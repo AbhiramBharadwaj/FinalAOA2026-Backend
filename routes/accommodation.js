@@ -7,6 +7,12 @@ import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
+const accommodationTransactionsDisabled = (req, res) =>
+  res.status(410).json({
+    message: 'Online accommodation booking is currently unavailable. Please contact the organizers.',
+    code: 'ACCOMMODATION_BOOKING_DISABLED',
+  });
+
 
 router.get('/my-bookings', authenticateUser, async (req, res) => {
   try {
@@ -65,7 +71,7 @@ router.get('/:id', async (req, res) => {
 });
 
 
-router.post('/book', authenticateUser, requireProfileComplete, async (req, res) => {
+router.post('/book', accommodationTransactionsDisabled, authenticateUser, requireProfileComplete, async (req, res) => {
   try {
     logger.info(`${req.actorName || 'User'} started an accommodation booking.`);
     const {
