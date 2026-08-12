@@ -22,6 +22,7 @@ import {
   normalizeCouponCode,
 } from '../utils/registrationTotals.js';
 import { razorpay } from '../services/razorpayClient.js';
+import { validateAttendeeName } from '../utils/profileValidation.js';
 import logger from '../utils/logger.js';
 import { sendErrorResponse } from '../utils/httpError.js';
 
@@ -517,6 +518,11 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
 
     if (!name || !email || !phone || !role) {
       return res.status(400).json({ message: 'Name, email, phone, and role are required.' });
+    }
+
+    const nameValidationError = validateAttendeeName(name);
+    if (nameValidationError) {
+      return res.status(400).json({ message: nameValidationError });
     }
 
     if (confirmPaymentReceived !== true && confirmPaymentReceived !== 'true') {

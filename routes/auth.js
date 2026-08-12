@@ -11,6 +11,7 @@ import { authenticateUser } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
 import { getPublicUploadPath, getUploadDirectory } from '../utils/uploadStorage.js';
 import { sendErrorResponse } from '../utils/httpError.js';
+import { validateAttendeeName } from '../utils/profileValidation.js';
 import {
   accountRegistrationLimiter,
   adminLoginLimiter,
@@ -110,6 +111,11 @@ router.post('/register', accountRegistrationLimiter, async (req, res) => {
       if (!req.body[field] || req.body[field].toString().trim() === '') {
         return res.status(400).json({ message: `Missing required field: ${field}` });
       }
+    }
+
+    const nameValidationError = validateAttendeeName(name);
+    if (nameValidationError) {
+      return res.status(400).json({ message: nameValidationError });
     }
 
     
