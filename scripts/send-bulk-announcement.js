@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import crypto from 'crypto';
 import dotenv from 'dotenv';
 
 dotenv.config();
@@ -116,10 +117,12 @@ const parseArgs = () => {
   const options = {
     file: null,
     send: false,
+    cc: [],
     attachments: [...defaultAttachments],
     emailColumn: 'email',
     nameColumn: 'name',
     serialColumn: '#',
+    template: 'abstract-video',
     start: null,
     end: null,
     minDelayMs: 30000,
@@ -130,6 +133,9 @@ const parseArgs = () => {
     const arg = args[i];
     if (arg === '--file') options.file = args[i + 1];
     if (arg === '--send') options.send = true;
+    if (arg === '--cc') {
+      options.cc = args[i + 1].split(',').map((value) => value.trim()).filter(Boolean);
+    }
     if (arg === '--attachment') options.attachments = [args[i + 1]];
     if (arg === '--attachments') {
       options.attachments = args[i + 1].split(',').map((value) => value.trim());
@@ -137,6 +143,7 @@ const parseArgs = () => {
     if (arg === '--email-column') options.emailColumn = args[i + 1];
     if (arg === '--name-column') options.nameColumn = args[i + 1];
     if (arg === '--serial-column') options.serialColumn = args[i + 1];
+    if (arg === '--template') options.template = args[i + 1];
     if (arg === '--start') options.start = Number(args[i + 1]);
     if (arg === '--end') options.end = Number(args[i + 1]);
     if (arg === '--min-delay-ms') options.minDelayMs = Number(args[i + 1]);
@@ -154,11 +161,38 @@ const escapeHtml = (value) =>
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
 
-const getSubject = (name) =>
-  `Dear ${name}, AOACON 2026 Abstract Submissions & Award Video Competition Now Open`;
+const getSubject = (name, template) => {
+  if (template === 'registration') {
+    return `Dear ${name}, Invitation to Register for AOACON 2026`;
+  }
 
-const getTextBody = (name) =>
-  [
+  return `Dear ${name}, AOACON 2026 Abstract Submissions & Award Video Competition Now Open`;
+};
+
+const getTextBody = (name, template) => {
+  if (template === 'registration') {
+    return [
+      `Dear ${name},`,
+      '',
+      'Greetings from the Organizing Committee of AOACON 2026, Shivamogga.',
+      '',
+      'We are pleased to invite you to register for AOACON 2026, the 19th National Conference of the Association of Obstetric Anaesthesiologists, being held from 30th October to 1st November 2026 in Shivamogga, Karnataka.',
+      '',
+      'Please find the conference brochure attached for further details. We request you to complete your registration at the earliest through the conference website:',
+      'https://www.aoacon2026.com/',
+      '',
+      'We look forward to welcoming you to AOACON 2026.',
+      '',
+      'If you have already registered, please ignore this message.',
+      '',
+      'Warm regards,',
+      'Organizing Committee',
+      'AOACON 2026',
+      'Shivamogga, Karnataka',
+    ].join('\n');
+  }
+
+  return [
     `Dear ${name},`,
     '',
     'Greetings from the Organizing Committee of AOACON 2026, Shivamogga.',
@@ -194,8 +228,26 @@ const getTextBody = (name) =>
     'AOACON 2026',
     'Shivamogga, Karnataka',
   ].join('\n');
+};
 
-const getHtmlBody = (name) => `
+const getHtmlBody = (name, template) => {
+  if (template === 'registration') {
+    return `
+  <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#1f2937;">
+    <p>Dear ${escapeHtml(name)},</p>
+    <p>Greetings from the Organizing Committee of AOACON 2026, Shivamogga.</p>
+    <p>We are pleased to invite you to register for AOACON 2026, the 19th National Conference of the Association of Obstetric Anaesthesiologists, being held from 30th October to 1st November 2026 in Shivamogga, Karnataka.</p>
+    <p>Please find the conference brochure attached for further details. We request you to complete your registration at the earliest through the conference website:<br />
+      <a href="https://www.aoacon2026.com/">www.aoacon2026.com</a>
+    </p>
+    <p>We look forward to welcoming you to AOACON 2026.</p>
+    <p><em>If you have already registered, please ignore this message.</em></p>
+    <p>Warm regards,<br />Organizing Committee<br />AOACON 2026<br />Shivamogga, Karnataka</p>
+  </div>
+`;
+  }
+
+  return `
   <div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#1f2937;">
     <p>Dear ${escapeHtml(name)},</p>
     <p>Greetings from the Organizing Committee of AOACON 2026, Shivamogga.</p>
@@ -226,19 +278,23 @@ const getHtmlBody = (name) => `
     <p>Warm regards,<br />Organizing Committee<br />AOACON 2026<br />Shivamogga, Karnataka</p>
   </div>
 `;
+};
 
 const getRandomDelay = (minDelayMs, maxDelayMs) => {
   if (maxDelayMs <= minDelayMs) return minDelayMs;
   return Math.floor(Math.random() * (maxDelayMs - minDelayMs + 1)) + minDelayMs;
 };
 
-const sendEmail = async ({ apiKey, from, to, name, attachments }) => {
+const sendEmail = async ({ apiKey, from, to, cc, name, attachments, template }) => {
+  const effectiveCc = cc.filter(
+    (email) => email.toLowerCase() !== String(to).toLowerCase()
+  );
   const payload = {
     from,
     to: [to],
-    subject: getSubject(name),
-    text: getTextBody(name),
-    html: getHtmlBody(name),
+    subject: getSubject(name, template),
+    text: getTextBody(name, template),
+    html: getHtmlBody(name, template),
     attachments: attachments.map((attachment) => {
       const attachmentBuffer = fs.readFileSync(attachment);
       return {
@@ -249,21 +305,66 @@ const sendEmail = async ({ apiKey, from, to, name, attachments }) => {
     }),
   };
 
-  const response = await fetch(resendEndpoint, {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify(payload),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Resend error ${response.status}: ${errorText}`);
+  if (effectiveCc.length) {
+    payload.cc = effectiveCc;
   }
 
-  return response.json();
+  const idempotencyKey = `aoacon-2026/${crypto
+    .createHash('sha256')
+    .update(
+      JSON.stringify({
+        from,
+        to,
+        cc: effectiveCc,
+        subject: payload.subject,
+        template,
+        attachments: attachments.map((attachment) => path.basename(attachment)),
+      })
+    )
+    .digest('hex')}`;
+  const retryableStatuses = new Set([408, 429, 500, 502, 503, 504]);
+  const maxAttempts = 3;
+
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    try {
+      const response = await fetch(resendEndpoint, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          'Content-Type': 'application/json',
+          'Idempotency-Key': idempotencyKey,
+        },
+        body: JSON.stringify(payload),
+      });
+
+      if (response.ok) {
+        return response.json();
+      }
+
+      const errorText = await response.text();
+      if (!retryableStatuses.has(response.status) || attempt === maxAttempts) {
+        throw new Error(`Resend error ${response.status}: ${errorText}`);
+      }
+
+      const retryDelay = attempt * 5000;
+      console.log(
+        `[RETRY] Resend returned ${response.status}. Retrying in ${formatDuration(retryDelay)} (attempt ${attempt + 1}/${maxAttempts}).`
+      );
+      await sleep(retryDelay);
+    } catch (error) {
+      if (String(error?.message || error).startsWith('Resend error') || attempt === maxAttempts) {
+        throw error;
+      }
+
+      const retryDelay = attempt * 5000;
+      console.log(
+        `[RETRY] Network error: ${error?.message || error}. Retrying in ${formatDuration(retryDelay)} (attempt ${attempt + 1}/${maxAttempts}).`
+      );
+      await sleep(retryDelay);
+    }
+  }
+
+  throw new Error('Resend request failed after all retry attempts.');
 };
 
 const main = async () => {
@@ -284,6 +385,13 @@ const main = async () => {
 
   if (Number.isNaN(options.minDelayMs) || Number.isNaN(options.maxDelayMs)) {
     throw new Error('Delay values must be valid numbers.');
+  }
+  if (!['abstract-video', 'registration'].includes(options.template)) {
+    throw new Error('Template must be either abstract-video or registration.');
+  }
+  const invalidCcAddresses = options.cc.filter((email) => !isValidEmail(email));
+  if (invalidCcAddresses.length) {
+    throw new Error(`Invalid CC email address: ${invalidCcAddresses.join(', ')}`);
   }
 
   const filePath = path.resolve(process.cwd(), options.file);
@@ -358,6 +466,8 @@ const main = async () => {
         end: options.end,
         minDelayMs: options.minDelayMs,
         maxDelayMs: options.maxDelayMs,
+        template: options.template,
+        cc: options.cc,
         file: filePath,
         attachments: attachmentPaths,
         startedAt: formatTimestamp(),
@@ -390,8 +500,10 @@ const main = async () => {
       apiKey,
       from,
       to: recipient.email,
+      cc: options.cc,
       name: recipient.name,
-        attachments: attachmentPaths,
+      attachments: attachmentPaths,
+      template: options.template,
     });
 
     console.log(
