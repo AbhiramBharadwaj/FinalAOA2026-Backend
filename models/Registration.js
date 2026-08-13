@@ -88,6 +88,10 @@ const registrationSchema = new mongoose.Schema(
       enum: ['EARLY_BIRD', 'REGULAR', 'SPOT'],
       required: true,
     },
+    pricingRole: {
+      type: String,
+      enum: ['AOA', 'NON_AOA', 'PGS'],
+    },
 
     
     packageBase: {
@@ -162,6 +166,17 @@ const registrationSchema = new mongoose.Schema(
     lifetimeMembershipId: {
       type: String,
       sparse: true,
+    },
+    membershipStatus: {
+      type: String,
+      enum: ['NOT_REQUESTED', 'PAYMENT_PENDING', 'ACTIVATING', 'ACTIVE'],
+      default: 'NOT_REQUESTED',
+    },
+    membershipRequestedAt: Date,
+    membershipActivatedAt: Date,
+    membershipRequestedByAdmin: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Admin',
     },
     razorpayOrderId: String,
     razorpayPaymentId: String,

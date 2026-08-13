@@ -10,6 +10,7 @@ import {
   buildAccommodationInvoicePdf,
 } from '../utils/invoice.js';
 import logger from '../utils/logger.js';
+import { activatePaidLifeMembership } from './membershipActivation.js';
 
 const EMAIL_CLAIM_TIMEOUT_MS = 10 * 60 * 1000;
 
@@ -137,7 +138,7 @@ const deliverRegistrationConfirmation = async ({ registrationId, payment, provid
 
   try {
     const registration = await Registration.findById(registrationId)
-      .populate('userId', 'name email phone role')
+      .populate('userId', 'name email phone role membershipId')
       .lean();
 
     if (!registration?.userId?.email) {
@@ -167,15 +168,25 @@ const deliverRegistrationConfirmation = async ({ registrationId, payment, provid
         : payment.createdAt || new Date(),
     });
 
+    const membershipActive =
+      registration.addLifeMembership && registration.membershipStatus === 'ACTIVE';
+    const summaryLines = [
+      `Registration No: ${registration.registrationNumber || 'N/A'}`,
+      `Package: ${buildRegistrationLabel(registration)}`,
+      `Amount Paid: INR ${Number(registration.totalPaid || payment.amount || 0).toLocaleString('en-IN')}`,
+      'Payment Status: PAID',
+    ];
+    if (membershipActive && registration.lifetimeMembershipId) {
+      summaryLines.splice(3, 0, `AOA Membership ID: ${registration.lifetimeMembershipId}`);
+      summaryLines.splice(4, 0, 'Membership Status: ACTIVE');
+    }
+
     await sendPaymentSuccessEmail({
       user: registration.userId,
-      subject: `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
-      summaryLines: [
-        `Registration No: ${registration.registrationNumber || 'N/A'}`,
-        `Package: ${buildRegistrationLabel(registration)}`,
-        `Amount Paid: INR ${Number(registration.totalPaid || payment.amount || 0).toLocaleString('en-IN')}`,
-        'Payment Status: PAID',
-      ],
+      subject: membershipActive
+        ? `AOA Life Membership Activated - ${registration.lifetimeMembershipId}`
+        : `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
+      summaryLines,
       qrCid: 'qr-ticket',
       attachments: [
         {
@@ -307,6 +318,7 @@ export const createPaymentFinalizer = ({ razorpay }) => {
     let targetStatus;
     let totalPaid;
     let emailStatus = 'NOT_REQUIRED';
+    let membershipActivation = null;
 
     if (payment.paymentType === 'REGISTRATION') {
       const paidAggregate = await Payment.aggregate([
@@ -332,6 +344,9 @@ export const createPaymentFinalizer = ({ razorpay }) => {
       });
 
       if (targetStatus === 'PAID') {
+        if (registration.addLifeMembership) {
+          membershipActivation = await activatePaidLifeMembership(registration._id);
+        }
         await Attendance.findOneAndUpdate(
           { registrationId: registration._id },
           {
@@ -384,6 +399,9 @@ export const createPaymentFinalizer = ({ razorpay }) => {
       paymentStatus: targetStatus,
       totalPaid,
       emailStatus,
+      membershipActivated: Boolean(membershipActivation?.activated),
+      membershipStatus: membershipActivation?.status,
+      membershipId: membershipActivation?.membershipId,
       alreadyFinalized: payment.status === 'SUCCESS',
     };
   };

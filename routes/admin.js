@@ -712,7 +712,7 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       name: String(name).trim(),
       email: String(email).toLowerCase().trim(),
       phone: String(phone).trim(),
-      role: normalizedRole,
+      role: wantsLifeMembership ? 'AOA' : normalizedRole,
       gender,
       mealPreference,
       country,
@@ -724,7 +724,11 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       designation,
       medicalCouncilName,
       medicalCouncilNumber,
-      membershipId: normalizedRole === 'AOA' ? membershipId : undefined,
+      membershipId: normalizedRole === 'AOA'
+        ? membershipId
+        : wantsLifeMembership
+          ? generateLifetimeMembershipId()
+          : undefined,
       isActive: true,
       isVerified: true,
       isProfileComplete: true,
@@ -743,7 +747,11 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       aoaCourseGST: totals.aoaCourseGST,
       addLifeMembership: wantsLifeMembership,
       lifeMembershipBase: totals.lifeMembershipBase,
-      lifetimeMembershipId: wantsLifeMembership ? generateLifetimeMembershipId() : undefined,
+      lifetimeMembershipId: wantsLifeMembership ? userPayload.membershipId : undefined,
+      membershipStatus: wantsLifeMembership ? 'ACTIVE' : 'NOT_REQUESTED',
+      membershipRequestedAt: wantsLifeMembership ? new Date() : undefined,
+      membershipActivatedAt: wantsLifeMembership ? new Date() : undefined,
+      pricingRole: normalizedRole,
       bookingPhase: phase,
       basePrice: totals.basePrice,
       packageBase: totals.packageBase,
@@ -897,10 +905,16 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       if (registration.couponCode && registration.couponDiscount) {
         summaryLines.splice(2, 0, `Coupon: ${registration.couponCode} (-INR ${Number(registration.couponDiscount).toLocaleString('en-IN')})`);
       }
+      if (registration.membershipStatus === 'ACTIVE' && registration.lifetimeMembershipId) {
+        summaryLines.splice(3, 0, `AOA Membership ID: ${registration.lifetimeMembershipId}`);
+        summaryLines.splice(4, 0, 'Membership Status: ACTIVE');
+      }
 
       await sendPaymentSuccessEmail({
         user,
-        subject: `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
+        subject: registration.membershipStatus === 'ACTIVE'
+          ? `AOA Life Membership Activated - ${registration.lifetimeMembershipId}`
+          : `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
         summaryLines,
         qrCid: 'qr-ticket',
         attachments: [
@@ -1013,6 +1027,96 @@ router.get('/registrations', authenticateAdmin, async (req, res) => {
   }
 });
 
+router.post('/registrations/:id/life-membership', authenticateAdmin, async (req, res) => {
+  try {
+    const registration = await Registration.findById(req.params.id).populate('userId');
+    if (!registration) {
+      return res.status(404).json({ message: 'Registration not found.' });
+    }
+    if (!registration.userId) {
+      return res.status(404).json({ message: 'Registration user not found.' });
+    }
+    if (registration.addLifeMembership) {
+      return res.status(409).json({
+        message: registration.membershipStatus === 'ACTIVE'
+          ? 'AOA Life Membership is already active.'
+          : 'AOA Life Membership payment is already pending.',
+      });
+    }
+    if (registration.paymentStatus !== 'PAID') {
+      return res.status(400).json({
+        message: 'The conference registration must be fully paid before adding life membership.',
+      });
+    }
+
+    const pricingRole = registration.pricingRole || registration.userId.role;
+    if (pricingRole !== 'NON_AOA' || registration.userId.role !== 'NON_AOA') {
+      return res.status(400).json({
+        message: 'AOA Life Membership can only be added to a Non-AOA registration.',
+      });
+    }
+
+    const totals = computeRegistrationTotals({
+      role: pricingRole,
+      bookingPhase: registration.bookingPhase,
+      addWorkshop: registration.addWorkshop,
+      addAoaCourse: registration.addAoaCourse,
+      addLifeMembership: true,
+      accompanyingPersons: registration.accompanyingPersons,
+      couponCode: registration.couponCode,
+    });
+    if (!totals || totals.lifeMembershipBase <= 0) {
+      return res.status(400).json({
+        message: 'AOA Life Membership pricing is not available for this registration phase.',
+      });
+    }
+
+    Object.assign(registration, {
+      addLifeMembership: true,
+      membershipStatus: 'PAYMENT_PENDING',
+      membershipRequestedAt: new Date(),
+      membershipRequestedByAdmin: req.admin._id,
+      pricingRole,
+      basePrice: totals.basePrice,
+      packageBase: totals.packageBase,
+      packageGST: totals.packageGST,
+      totalBase: totals.totalBase,
+      totalGST: totals.totalGST,
+      subtotalWithGST: totals.subtotalWithGST,
+      processingFee: totals.processingFee,
+      totalAmount: totals.totalAmount,
+      workshopAddOn: totals.workshopAddOn,
+      aoaCourseBase: totals.aoaCourseBase,
+      aoaCourseGST: totals.aoaCourseGST,
+      lifeMembershipBase: totals.lifeMembershipBase,
+      accompanyingBase: totals.accompanyingBase,
+      accompanyingGST: totals.accompanyingGST,
+      paymentStatus: (registration.totalPaid || 0) >= totals.totalAmount ? 'PAID' : 'PENDING',
+      paymentEmailSentAt: null,
+      paymentEmailSendingAt: null,
+      paymentEmailFailedAt: null,
+      paymentEmailError: null,
+    });
+    await registration.save();
+    await registration.populate(
+      'userId',
+      'name email phone role membershipId gender country state city address pincode instituteHospital designation medicalCouncilName medicalCouncilNumber'
+    );
+
+    return res.json({
+      message: 'AOA Life Membership added. The attendee can now pay the additional balance.',
+      registration,
+      balanceDue: Math.max(0, registration.totalAmount - (registration.totalPaid || 0)),
+    });
+  } catch (error) {
+    logger.error('admin.registration_life_membership.error', {
+      requestId: req.requestId,
+      message: error?.message || error,
+    });
+    return sendErrorResponse(res, error, 'AOA Life Membership could not be added to this registration.');
+  }
+});
+
 router.delete('/registrations/:id', authenticateAdmin, async (req, res) => {
   try {
     const registration = await Registration.findById(req.params.id);
@@ -1086,10 +1190,16 @@ router.post('/registrations/:id/resend-email', authenticateAdmin, async (req, re
       if (registration.couponCode && registration.couponDiscount) {
         summaryLines.splice(2, 0, `Coupon: ${registration.couponCode} (-INR ${Number(registration.couponDiscount).toLocaleString('en-IN')})`);
       }
+      if (registration.membershipStatus === 'ACTIVE' && registration.lifetimeMembershipId) {
+        summaryLines.splice(3, 0, `AOA Membership ID: ${registration.lifetimeMembershipId}`);
+        summaryLines.splice(4, 0, 'Membership Status: ACTIVE');
+      }
 
       await sendPaymentSuccessEmail({
         user: registration.userId,
-        subject: `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
+        subject: registration.membershipStatus === 'ACTIVE'
+          ? `AOA Life Membership Activated - ${registration.lifetimeMembershipId}`
+          : `AOACON 2026 Payment Successful - ${registration.registrationNumber}`,
         summaryLines,
         qrCid: 'qr-ticket',
         attachments: [
