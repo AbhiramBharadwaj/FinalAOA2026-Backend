@@ -6,7 +6,7 @@ import {
   normalizeCouponCode,
 } from '../utils/registrationTotals.js';
 
-test('normalizes and applies AOACON500 to the conference base price', () => {
+test('normalizes and applies AOACON50011 to the conference base price', () => {
   const withoutCoupon = computeRegistrationTotals({
     role: 'NON_AOA',
     bookingPhase: 'EARLY_BIRD',
@@ -18,11 +18,11 @@ test('normalizes and applies AOACON500 to the conference base price', () => {
     bookingPhase: 'EARLY_BIRD',
     addAoaCourse: true,
     addLifeMembership: true,
-    couponCode: ' aoacon500 ',
+    couponCode: ' AOACON50011 ',
   });
 
-  assert.equal(normalizeCouponCode(' aoacon500 '), 'AOACON500');
-  assert.equal(withCoupon.couponCode, 'AOACON500');
+  assert.equal(normalizeCouponCode(' AOACON50011 '), 'AOACON50011');
+  assert.equal(withCoupon.couponCode, 'AOACON50011');
   assert.equal(withCoupon.couponDiscount, 500);
   assert.ok(withCoupon.totalAmount < withoutCoupon.totalAmount);
 });
