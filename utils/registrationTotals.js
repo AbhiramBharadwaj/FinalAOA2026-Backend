@@ -1,6 +1,6 @@
 import { calculateRegistrationTotals } from './pricing.js';
 
-export const AOA_COURSE_CAPACITY = 51;
+export const AOA_COURSE_CAPACITY = 52;
 export const COUPON_ENABLED = true;
 export const COUPONS = {
   AOACON50011: { discount: 500 },
