@@ -7,6 +7,7 @@ import {
   AOA_COURSE_CAPACITY,
   COUPON_ENABLED,
   computeRegistrationTotals,
+  isAoaCourseFullForUser,
   normalizeCouponCode,
   resolveCouponDiscount,
 } from '../utils/registrationTotals.js';
@@ -451,7 +452,13 @@ router.get('/pricing', authenticateUser, async (req, res) => {
       $or: [{ registrationType: 'AOA_CERTIFIED_COURSE' }, { addAoaCourse: true }],
     });
 
-    const aoaCourseFull = aoaCourseCount >= AOA_COURSE_CAPACITY;
+    const hasAoaCourseReservation = Boolean(
+      registration?.registrationType === 'AOA_CERTIFIED_COURSE' || registration?.addAoaCourse
+    );
+    const aoaCourseFull = isAoaCourseFullForUser(
+      aoaCourseCount,
+      hasAoaCourseReservation
+    );
 
     res.json({
       bookingPhase,
@@ -493,6 +500,7 @@ router.get('/pricing', authenticateUser, async (req, res) => {
         aoaCourseCount,
         aoaCourseFull,
         aoaCourseLimit: AOA_COURSE_CAPACITY,
+        hasAoaCourseReservation,
         pricingRole,
       },
     });

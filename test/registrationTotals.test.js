@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   AOA_COURSE_CAPACITY,
   computeRegistrationTotals,
+  isAoaCourseFullForUser,
   normalizeCouponCode,
 } from '../utils/registrationTotals.js';
 
@@ -40,4 +41,9 @@ test('does not silently apply an unknown coupon', () => {
 
 test('uses the configured AOA course capacity', () => {
   assert.equal(AOA_COURSE_CAPACITY, 53);
+});
+
+test('keeps a full AOA course available to users who already reserved a seat', () => {
+  assert.equal(isAoaCourseFullForUser(AOA_COURSE_CAPACITY, true), false);
+  assert.equal(isAoaCourseFullForUser(AOA_COURSE_CAPACITY, false), true);
 });

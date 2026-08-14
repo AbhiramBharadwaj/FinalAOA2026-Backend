@@ -9,6 +9,9 @@ export const COUPONS = {
 export const normalizeCouponCode = (code) =>
   code ? String(code).trim().toUpperCase() : '';
 
+export const isAoaCourseFullForUser = (seatsUsed, hasExistingReservation = false) =>
+  Number(seatsUsed || 0) >= AOA_COURSE_CAPACITY && !hasExistingReservation;
+
 export const resolveCouponDiscount = (code, basePrice) => {
   const normalized = normalizeCouponCode(code);
   if (!normalized || !COUPON_ENABLED) return { code: null, discount: 0 };
