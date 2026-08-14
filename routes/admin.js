@@ -29,6 +29,12 @@ import { sendErrorResponse } from '../utils/httpError.js';
 const router = express.Router();
 
 const REGISTRATION_PREFIX = 'AOA2026-';
+const AOA_COURSE_SELECTION_FILTER = {
+  $or: [
+    { registrationType: 'AOA_CERTIFIED_COURSE' },
+    { addAoaCourse: true },
+  ],
+};
 
 const buildRegistrationNumber = (seq) =>
   `${REGISTRATION_PREFIX}${String(seq).padStart(4, '0')}`;
@@ -421,10 +427,9 @@ router.post('/manual-registrations/quote', authenticateAdmin, async (req, res) =
     }
 
     if (wantsAoaCourse) {
-      const aoaCourseSeatsUsed = await Registration.countDocuments({
-        addAoaCourse: true,
-        paymentStatus: 'PAID',
-      });
+      const aoaCourseSeatsUsed = await Registration.countDocuments(
+        AOA_COURSE_SELECTION_FILTER
+      );
       if (aoaCourseSeatsUsed >= AOA_COURSE_CAPACITY) {
         return res.status(409).json({
           message: `AOA Certified Course is full (${AOA_COURSE_CAPACITY}/${AOA_COURSE_CAPACITY}). Increase capacity before registering another attendee.`,
@@ -452,7 +457,7 @@ router.post('/manual-registrations/quote', authenticateAdmin, async (req, res) =
     }
 
     const aoaCourseSeatsUsed = wantsAoaCourse
-      ? await Registration.countDocuments({ addAoaCourse: true, paymentStatus: 'PAID' })
+      ? await Registration.countDocuments(AOA_COURSE_SELECTION_FILTER)
       : 0;
 
     res.json({
@@ -583,10 +588,9 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
     }
 
     if (wantsAoaCourse) {
-      const aoaCourseSeatsUsed = await Registration.countDocuments({
-        addAoaCourse: true,
-        paymentStatus: 'PAID',
-      });
+      const aoaCourseSeatsUsed = await Registration.countDocuments(
+        AOA_COURSE_SELECTION_FILTER
+      );
       if (aoaCourseSeatsUsed >= AOA_COURSE_CAPACITY) {
         return res.status(409).json({
           message: `AOA Certified Course is full (${AOA_COURSE_CAPACITY}/${AOA_COURSE_CAPACITY}). Increase capacity before registering another attendee.`,
@@ -782,10 +786,9 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
     try {
       await session.withTransaction(async () => {
         if (wantsAoaCourse) {
-          const seatsUsed = await Registration.countDocuments({
-            addAoaCourse: true,
-            paymentStatus: 'PAID',
-          }).session(session);
+          const seatsUsed = await Registration.countDocuments(
+            AOA_COURSE_SELECTION_FILTER
+          ).session(session);
           if (seatsUsed >= AOA_COURSE_CAPACITY) {
             const capacityError = new Error('AOA Certified Course became full before the registration was saved.');
             capacityError.statusCode = 409;
