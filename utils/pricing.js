@@ -1,18 +1,14 @@
 /**
- * Determine current booking phase based on date
- * Current date: December 31, 2025 → Returns 'SPOT'
+ * Determine current booking phase based on date.
  */
-export const getBookingPhase = () => {
-  const now = new Date();
+export const getBookingPhase = (now = new Date()) => {
   const year = 2026;
 
-  
-  const earlyBirdEnd = new Date(year, 7, 15); 
+  const regularPricingStarts = new Date(year, 8, 1);
 
-  
-  const regularEnd = new Date(year, 9, 15); 
+  const regularEnd = new Date(year, 9, 15);
 
-  if (now <= earlyBirdEnd) return 'EARLY_BIRD';
+  if (now < regularPricingStarts) return 'EARLY_BIRD';
   if (now <= regularEnd) return 'REGULAR';
   return 'SPOT';
 };
