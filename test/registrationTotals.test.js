@@ -40,7 +40,7 @@ test('does not silently apply an unknown coupon', () => {
 });
 
 test('uses the configured AOA course capacity', () => {
-  assert.equal(AOA_COURSE_CAPACITY, 56);
+  assert.equal(AOA_COURSE_CAPACITY, 57);
 });
 
 test('keeps a full AOA course available to users who already reserved a seat', () => {
