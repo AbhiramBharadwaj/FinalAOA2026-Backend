@@ -197,9 +197,15 @@ export const buildAccommodationInvoicePdf = (booking, user) => {
     y
   );
   y += 6;
-  addLine(doc, 'Guests', booking.numberOfGuests, y);
+  addLine(doc, 'Occupancy', booking.occupancyType === 'SHARING' ? 'Sharing' : 'Single', y);
   y += 6;
-  addLine(doc, 'Rooms', booking.roomsBooked, y);
+  if (booking.roommateName) {
+    addLine(doc, 'Roommate', booking.roommateName, y);
+    y += 6;
+  }
+  addLine(doc, 'Check-in time', booking.checkInTime || booking.accommodationId?.checkInTime || '14:00', y);
+  y += 6;
+  addLine(doc, 'Check-out time', booking.checkOutTime || booking.accommodationId?.checkOutTime || '12:00', y);
   y += 6;
   addLine(doc, 'Nights', booking.numberOfNights, y);
 
@@ -208,7 +214,21 @@ export const buildAccommodationInvoicePdf = (booking, user) => {
   doc.setFontSize(11);
   doc.text('Payment Summary', 20, y);
   y += 8;
-  addLine(doc, 'Total Paid', formatAmount(booking.totalAmount), y);
+  addLine(doc, 'Rate per night', formatAmount(booking.baseRatePerNight), y);
+  y += 6;
+  addLine(doc, 'Base amount', formatAmount(booking.baseAmount), y);
+  y += 6;
+  addLine(doc, `GST (${booking.gstRate ?? 5}%)`, formatAmount(booking.gstAmount), y);
+  y += 6;
+  addLine(doc, 'Amount collected', formatAmount(booking.amountCollected ?? booking.totalAmount), y);
+  y += 6;
+  if (booking.paymentMethod) {
+    addLine(doc, 'Payment method', booking.paymentMethod.replaceAll('_', ' '), y);
+    y += 6;
+  }
+  if (booking.paymentReference) {
+    addLine(doc, 'Payment reference', booking.paymentReference, y);
+  }
 
   doc.setFontSize(9);
   doc.setTextColor(110);

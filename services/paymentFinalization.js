@@ -214,7 +214,7 @@ const deliverRegistrationConfirmation = async ({ registrationId, payment, provid
   }
 };
 
-const deliverAccommodationConfirmation = async ({ bookingId }) => {
+export const deliverAccommodationConfirmation = async ({ bookingId }) => {
   const claimed = await claimEmailDelivery(AccommodationBooking, bookingId);
   if (!claimed) return 'ALREADY_SENT_OR_IN_PROGRESS';
 
@@ -232,7 +232,9 @@ const deliverAccommodationConfirmation = async ({ bookingId }) => {
       summaryLines: [
         `Booking No: ${booking.bookingNumber || 'N/A'}`,
         `Hotel: ${booking.accommodationId?.name || 'N/A'}`,
-        `Amount Paid: INR ${Number(booking.totalAmount || 0).toLocaleString('en-IN')}`,
+        `Stay: ${new Date(booking.checkInDate).toLocaleDateString('en-IN')} to ${new Date(booking.checkOutDate).toLocaleDateString('en-IN')}`,
+        `Occupancy: ${booking.occupancyType === 'SHARING' ? 'Sharing' : 'Single'}`,
+        `Amount Paid: INR ${Number(booking.amountCollected ?? booking.totalAmount ?? 0).toLocaleString('en-IN')}`,
         'Payment Status: PAID',
       ],
       attachments: [

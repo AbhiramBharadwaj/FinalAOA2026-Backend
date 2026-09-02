@@ -25,6 +25,14 @@ import { razorpay } from '../services/razorpayClient.js';
 import { validateAttendeeName } from '../utils/profileValidation.js';
 import logger from '../utils/logger.js';
 import { sendErrorResponse } from '../utils/httpError.js';
+import { deliverAccommodationConfirmation } from '../services/paymentFinalization.js';
+import {
+  MANAGED_HOTEL,
+  calculateAccommodationQuote,
+  toIndiaDateTime,
+  validateAccommodationDateWindow,
+  validateAccommodationTime,
+} from '../utils/accommodationPricing.js';
 
 const router = express.Router();
 
@@ -34,6 +42,86 @@ const AOA_COURSE_SELECTION_FILTER = {
     { registrationType: 'AOA_CERTIFIED_COURSE' },
     { addAoaCourse: true },
   ],
+};
+
+const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+const getManagedAccommodation = async ({ create = false } = {}) => {
+  let accommodation = await Accommodation.findOne({ name: /Harsha The Fern/i });
+  if (accommodation && create && !accommodation.managedByOrganizers) {
+    accommodation.managedByOrganizers = true;
+    await accommodation.save();
+  }
+  if (accommodation || !create) return accommodation;
+  return Accommodation.create({
+    name: MANAGED_HOTEL.name,
+    description: MANAGED_HOTEL.description,
+    images: [],
+    pricePerNight: MANAGED_HOTEL.singleBaseRate,
+    totalRooms: 0,
+    availableRooms: 0,
+    amenities: [],
+    inclusions: [],
+    exclusions: [],
+    faqs: [],
+    location: MANAGED_HOTEL.location,
+    checkInTime: MANAGED_HOTEL.checkInTime,
+    checkOutTime: MANAGED_HOTEL.checkOutTime,
+    managedByOrganizers: true,
+    manualBookingRates: {
+      singleBasePerNight: MANAGED_HOTEL.singleBaseRate,
+      sharingBasePerPersonPerNight: MANAGED_HOTEL.sharingBaseRate,
+      gstRate: MANAGED_HOTEL.gstRate,
+    },
+    bookingWindow: {
+      earliestCheckIn: MANAGED_HOTEL.earliestCheckIn,
+      latestCheckOut: MANAGED_HOTEL.latestCheckOut,
+    },
+    isActive: true,
+  });
+};
+
+const getAccommodationDateWindow = (accommodation) => ({
+  earliestCheckIn: accommodation?.bookingWindow?.earliestCheckIn || MANAGED_HOTEL.earliestCheckIn,
+  latestCheckOut: accommodation?.bookingWindow?.latestCheckOut || MANAGED_HOTEL.latestCheckOut,
+});
+
+const findManagedAccommodation = async (accommodationId, { activeOnly = true } = {}) => {
+  if (!mongoose.isValidObjectId(accommodationId)) return null;
+  return Accommodation.findOne({
+    _id: accommodationId,
+    managedByOrganizers: true,
+    ...(activeOnly ? { isActive: true } : {}),
+  });
+};
+
+const readManagedAccommodationInput = (body) => {
+  const name = String(body.name || '').trim();
+  const location = String(body.location || '').trim();
+  const singleBasePerNight = Number(body.singleBasePerNight);
+  const sharingBasePerPersonPerNight = Number(body.sharingBasePerPersonPerNight);
+  const gstRate = Number(body.gstRate);
+  const checkInTime = validateAccommodationTime(body.checkInTime, 'check-in');
+  const checkOutTime = validateAccommodationTime(body.checkOutTime, 'check-out');
+  const bookingWindow = validateAccommodationDateWindow(body.earliestCheckIn, body.latestCheckOut);
+  if (!name) throw new Error('Enter the hotel name.');
+  if (!location) throw new Error('Enter the hotel location.');
+  if (
+    !Number.isFinite(singleBasePerNight) || singleBasePerNight < 0 ||
+    !Number.isFinite(sharingBasePerPersonPerNight) || sharingBasePerPersonPerNight < 0 ||
+    !Number.isFinite(gstRate) || gstRate < 0
+  ) throw new Error('Enter valid accommodation rates and GST.');
+  return {
+    name,
+    location,
+    description: String(body.description || '').trim() || 'Organizer-managed accommodation allocation for registered AOACON 2026 delegates.',
+    pricePerNight: singleBasePerNight,
+    checkInTime,
+    checkOutTime,
+    manualBookingRates: { singleBasePerNight, sharingBasePerPersonPerNight, gstRate },
+    bookingWindow,
+    isActive: body.isActive !== false && body.isActive !== 'false',
+  };
 };
 
 const buildRegistrationNumber = (seq) =>
@@ -1464,6 +1552,357 @@ router.post('/users/bulk-delete', authenticateAdmin, async (req, res) => {
 });
 
 
+router.get('/managed-accommodations', authenticateAdmin, async (req, res) => {
+  try {
+    await getManagedAccommodation({ create: true });
+    const accommodations = await Accommodation.find({ managedByOrganizers: true }).sort({ isActive: -1, name: 1 });
+    return res.json(accommodations);
+  } catch (error) {
+    logger.error('admin.managed_accommodations_get.error', { requestId: req.requestId, message: error?.message || error });
+    return sendErrorResponse(res, error, 'Hotels could not be loaded.');
+  }
+});
+
+router.post('/managed-accommodations', authenticateAdmin, async (req, res) => {
+  try {
+    const values = readManagedAccommodationInput(req.body);
+    const duplicate = await Accommodation.exists({ name: new RegExp(`^${escapeRegex(values.name)}$`, 'i') });
+    if (duplicate) return res.status(409).json({ message: 'A hotel with this name already exists.' });
+    const accommodation = await Accommodation.create({
+      ...values,
+      managedByOrganizers: true,
+      totalRooms: 0,
+      availableRooms: 0,
+      images: [], amenities: [], inclusions: [], exclusions: [], faqs: [],
+    });
+    return res.status(201).json({ message: 'Hotel added successfully.', accommodation });
+  } catch (error) {
+    if (error?.message?.startsWith('Enter ')) return res.status(400).json({ message: error.message });
+    logger.error('admin.managed_accommodation_create.error', { requestId: req.requestId, message: error?.message || error });
+    return sendErrorResponse(res, error, 'Hotel could not be added. Please check the entered details.');
+  }
+});
+
+router.put('/managed-accommodations/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const accommodation = await findManagedAccommodation(req.params.id, { activeOnly: false });
+    if (!accommodation) return res.status(404).json({ message: 'Managed hotel not found.' });
+    const values = readManagedAccommodationInput(req.body);
+    const duplicate = await Accommodation.exists({
+      _id: { $ne: accommodation._id },
+      name: new RegExp(`^${escapeRegex(values.name)}$`, 'i'),
+    });
+    if (duplicate) return res.status(409).json({ message: 'A hotel with this name already exists.' });
+    accommodation.set(values);
+    await accommodation.save();
+    return res.json({ message: 'Hotel settings updated.', accommodation });
+  } catch (error) {
+    if (error?.message?.startsWith('Enter ')) return res.status(400).json({ message: error.message });
+    logger.error('admin.managed_accommodation_update.error', { requestId: req.requestId, message: error?.message || error });
+    return sendErrorResponse(res, error, 'Hotel settings could not be updated.');
+  }
+});
+
+router.get('/accommodation-settings/harsha-fern', authenticateAdmin, async (req, res) => {
+  try {
+    const accommodation = await getManagedAccommodation();
+    return res.json({
+      accommodation,
+      defaults: MANAGED_HOTEL,
+    });
+  } catch (error) {
+    logger.error('admin.accommodation_settings_get.error', { requestId: req.requestId, message: error?.message || error });
+    return sendErrorResponse(res, error, 'Accommodation settings could not be loaded.');
+  }
+});
+
+router.put('/accommodation-settings/harsha-fern', authenticateAdmin, async (req, res) => {
+  try {
+    const singleBasePerNight = Number(req.body.singleBasePerNight);
+    const sharingBasePerPersonPerNight = Number(req.body.sharingBasePerPersonPerNight);
+    const gstRate = Number(req.body.gstRate);
+    const checkInTime = validateAccommodationTime(req.body.checkInTime, 'check-in');
+    const checkOutTime = validateAccommodationTime(req.body.checkOutTime, 'check-out');
+    if (
+      !Number.isFinite(singleBasePerNight) || singleBasePerNight < 0 ||
+      !Number.isFinite(sharingBasePerPersonPerNight) || sharingBasePerPersonPerNight < 0 ||
+      !Number.isFinite(gstRate) || gstRate < 0
+    ) {
+      return res.status(400).json({ message: 'Enter valid accommodation rates and GST.' });
+    }
+
+    const accommodation = await getManagedAccommodation({ create: true });
+    accommodation.name = MANAGED_HOTEL.name;
+    accommodation.location = MANAGED_HOTEL.location;
+    accommodation.managedByOrganizers = true;
+    accommodation.pricePerNight = singleBasePerNight;
+    accommodation.checkInTime = checkInTime;
+    accommodation.checkOutTime = checkOutTime;
+    accommodation.manualBookingRates = {
+      singleBasePerNight,
+      sharingBasePerPersonPerNight,
+      gstRate,
+    };
+    accommodation.bookingWindow = {
+      earliestCheckIn: accommodation.bookingWindow?.earliestCheckIn || MANAGED_HOTEL.earliestCheckIn,
+      latestCheckOut: accommodation.bookingWindow?.latestCheckOut || MANAGED_HOTEL.latestCheckOut,
+    };
+    await accommodation.save();
+    return res.json({ message: 'Accommodation settings updated.', accommodation });
+  } catch (error) {
+    if (error?.message?.startsWith('Enter a valid')) {
+      return res.status(400).json({ message: error.message });
+    }
+    logger.error('admin.accommodation_settings_update.error', { requestId: req.requestId, message: error?.message || error });
+    return sendErrorResponse(res, error, 'Accommodation settings could not be updated.');
+  }
+});
+
+router.get('/accommodation-eligible-users', authenticateAdmin, async (req, res) => {
+  try {
+    const search = String(req.query.search || '').trim();
+    if (search.length < 2) return res.json([]);
+    const regex = new RegExp(escapeRegex(search), 'i');
+    const digits = search.replace(/\D/g, '');
+    const userConditions = [{ name: regex }, { email: regex }];
+    if (digits) userConditions.push({ phone: new RegExp(escapeRegex(digits)) });
+    const users = await User.find({ $or: userConditions }).select('_id').limit(30).lean();
+    const registrationConditions = [{ registrationNumber: regex }];
+    if (users.length) registrationConditions.push({ userId: { $in: users.map((user) => user._id) } });
+    const registrations = await Registration.find({
+      paymentStatus: 'PAID',
+      $or: registrationConditions,
+    })
+      .populate('userId', 'name email phone role membershipId')
+      .sort({ createdAt: -1 })
+      .limit(15)
+      .lean();
+
+    return res.json(registrations.filter((registration) => registration.userId).map((registration) => ({
+      userId: registration.userId._id,
+      name: registration.userId.name,
+      email: registration.userId.email,
+      phone: registration.userId.phone,
+      role: registration.userId.role,
+      membershipId: registration.userId.membershipId,
+      registrationId: registration._id,
+      registrationNumber: registration.registrationNumber,
+      registrationPaymentStatus: registration.paymentStatus,
+    })));
+  } catch (error) {
+    logger.error('admin.accommodation_user_search.error', { requestId: req.requestId, message: error?.message || error });
+    return sendErrorResponse(res, error, 'Registered delegates could not be searched.');
+  }
+});
+
+router.post('/accommodation-bookings/quote', authenticateAdmin, async (req, res) => {
+  try {
+    const accommodation = req.body.accommodationId
+      ? await findManagedAccommodation(req.body.accommodationId)
+      : await getManagedAccommodation({ create: true });
+    if (!accommodation || !accommodation.isActive) {
+      return res.status(404).json({ message: 'Select an active hotel.' });
+    }
+    const rates = accommodation?.manualBookingRates || {};
+    const dateWindow = getAccommodationDateWindow(accommodation);
+    const quote = calculateAccommodationQuote({
+      occupancyType: req.body.occupancyType,
+      checkInDate: req.body.checkInDate,
+      checkOutDate: req.body.checkOutDate,
+      singleBaseRate: rates.singleBasePerNight ?? MANAGED_HOTEL.singleBaseRate,
+      sharingBaseRate: rates.sharingBasePerPersonPerNight ?? MANAGED_HOTEL.sharingBaseRate,
+      gstRate: rates.gstRate ?? MANAGED_HOTEL.gstRate,
+      ...dateWindow,
+    });
+    return res.json({ quote, accommodation, dateWindow });
+  } catch (error) {
+    return res.status(400).json({ message: error?.message || 'Accommodation quote could not be calculated.' });
+  }
+});
+
+router.post('/accommodation-bookings/manual', authenticateAdmin, async (req, res) => {
+  try {
+    const {
+      userId,
+      accommodationId,
+      occupancyType,
+      roommateName,
+      checkInDate,
+      checkOutDate,
+      checkInTime,
+      checkOutTime,
+      amountCollected,
+      amountAdjustmentNote,
+      paymentMethod,
+      paymentReference,
+      paymentDate,
+      adminNotes,
+      sendEmail,
+      confirmPaymentReceived,
+    } = req.body;
+
+    if (!mongoose.isValidObjectId(userId)) return res.status(400).json({ message: 'Select a registered delegate.' });
+    if (confirmPaymentReceived !== true && confirmPaymentReceived !== 'true') {
+      return res.status(400).json({ message: 'Confirm that the accommodation payment was received.' });
+    }
+    const normalizedPaymentMethod = String(paymentMethod || '').trim().toUpperCase();
+    if (!['UPI', 'BANK_TRANSFER', 'CASH', 'OTHER'].includes(normalizedPaymentMethod)) {
+      return res.status(400).json({ message: 'Select a valid payment method.' });
+    }
+    const paidAt = new Date(paymentDate);
+    if (!paymentDate || Number.isNaN(paidAt.getTime()) || paidAt > new Date()) {
+      return res.status(400).json({ message: 'Enter a valid payment date that is not in the future.' });
+    }
+
+    const registration = await Registration.findOne({ userId, paymentStatus: 'PAID' }).lean();
+    if (!registration) {
+      return res.status(400).json({ message: 'Accommodation can only be assigned after conference registration is paid.' });
+    }
+    const user = await User.findById(userId).lean();
+    if (!user) return res.status(404).json({ message: 'Delegate profile not found.' });
+
+    const accommodation = accommodationId
+      ? await findManagedAccommodation(accommodationId)
+      : await getManagedAccommodation({ create: true });
+    if (!accommodation || !accommodation.isActive) {
+      return res.status(404).json({ message: 'Select an active hotel.' });
+    }
+    const normalizedCheckInTime = validateAccommodationTime(checkInTime || accommodation.checkInTime || MANAGED_HOTEL.checkInTime, 'check-in');
+    const normalizedCheckOutTime = validateAccommodationTime(checkOutTime || accommodation.checkOutTime || MANAGED_HOTEL.checkOutTime, 'check-out');
+    const rates = accommodation.manualBookingRates || {};
+    const dateWindow = getAccommodationDateWindow(accommodation);
+    const quote = calculateAccommodationQuote({
+      occupancyType,
+      checkInDate,
+      checkOutDate,
+      singleBaseRate: rates.singleBasePerNight ?? MANAGED_HOTEL.singleBaseRate,
+      sharingBaseRate: rates.sharingBasePerPersonPerNight ?? MANAGED_HOTEL.sharingBaseRate,
+      gstRate: rates.gstRate ?? MANAGED_HOTEL.gstRate,
+      ...dateWindow,
+    });
+    const collected = Number(amountCollected);
+    if (!Number.isFinite(collected) || collected < 0) {
+      return res.status(400).json({ message: 'Enter a valid amount collected.' });
+    }
+    if (collected !== quote.totalAmount && !String(amountAdjustmentNote || '').trim()) {
+      return res.status(400).json({ message: 'Explain why the amount collected differs from the calculated total.' });
+    }
+
+    const checkIn = toIndiaDateTime(checkInDate, normalizedCheckInTime);
+    const checkOut = toIndiaDateTime(checkOutDate, normalizedCheckOutTime);
+    const overlapping = await AccommodationBooking.findOne({
+      userId,
+      bookingStatus: { $ne: 'CANCELLED' },
+      checkInDate: { $lt: checkOut },
+      checkOutDate: { $gt: checkIn },
+    }).lean();
+    if (overlapping) {
+      return res.status(409).json({ message: `This delegate already has an overlapping booking (${overlapping.bookingNumber}).` });
+    }
+
+    const reference = String(paymentReference || '').trim() || `manual_${normalizedPaymentMethod.toLowerCase()}_no_reference_${Date.now()}`;
+    const duplicateReference = await Payment.exists({ paymentReference: reference });
+    if (duplicateReference) return res.status(409).json({ message: 'This payment reference has already been used.' });
+
+    const session = await mongoose.startSession();
+    let booking;
+    let payment;
+    try {
+      await session.withTransaction(async () => {
+        [booking] = await AccommodationBooking.create([{
+          userId,
+          accommodationId: accommodation._id,
+          checkInDate: checkIn,
+          checkOutDate: checkOut,
+          checkInTime: normalizedCheckInTime,
+          checkOutTime: normalizedCheckOutTime,
+          numberOfNights: quote.numberOfNights,
+          numberOfGuests: 1,
+          roomsBooked: 1,
+          occupancyType: quote.occupancyType,
+          roommateName: quote.occupancyType === 'SHARING' ? String(roommateName || '').trim() : undefined,
+          baseRatePerNight: quote.baseRatePerNight,
+          gstRate: quote.gstRate,
+          baseAmount: quote.baseAmount,
+          gstAmount: quote.gstAmount,
+          totalAmount: quote.totalAmount,
+          amountCollected: collected,
+          paymentStatus: 'PAID',
+          bookingStatus: 'CONFIRMED',
+          paymentMethod: normalizedPaymentMethod,
+          paymentReference: reference,
+          paymentDate: paidAt,
+          amountAdjustmentNote: String(amountAdjustmentNote || '').trim() || undefined,
+          adminNotes: String(adminNotes || '').trim() || undefined,
+          createdByAdmin: req.admin._id,
+          updatedByAdmin: req.admin._id,
+        }], { session });
+
+        const manualOrderId = `manual_accommodation_${booking.bookingNumber}_${Date.now()}`;
+        booking.razorpayOrderId = manualOrderId;
+        await booking.save({ session });
+        [payment] = await Payment.create([{
+          userId,
+          accommodationBookingId: booking._id,
+          amount: collected,
+          currency: 'INR',
+          status: 'SUCCESS',
+          paymentType: 'ACCOMMODATION',
+          razorpayOrderId: manualOrderId,
+          paymentMethod: normalizedPaymentMethod,
+          paymentReference: reference,
+          paymentDate: paidAt,
+          isManual: true,
+          providerVerified: false,
+          recordedBy: req.admin._id,
+          recordingNotes: String(adminNotes || '').trim() || 'Manual accommodation allocation',
+          finalizedAt: new Date(),
+          finalizationSource: 'ADMIN',
+        }], { session });
+      });
+    } finally {
+      await session.endSession();
+    }
+
+    let emailStatus = 'NOT_REQUESTED';
+    if (sendEmail === true || sendEmail === 'true') {
+      emailStatus = await deliverAccommodationConfirmation({ bookingId: booking._id });
+    }
+    const populated = await AccommodationBooking.findById(booking._id)
+      .populate('userId', 'name email phone role')
+      .populate('accommodationId', 'name location checkInTime checkOutTime')
+      .lean();
+    return res.status(201).json({
+      message: 'Accommodation booking recorded successfully.',
+      booking: populated,
+      payment: { id: payment._id, amount: payment.amount, reference: payment.paymentReference },
+      emailStatus,
+    });
+  } catch (error) {
+    if (error?.message?.startsWith('Enter a valid') || error?.message?.startsWith('Select ') || error?.message?.startsWith('Accommodation dates') || error?.message?.startsWith('Check-out')) {
+      return res.status(400).json({ message: error.message });
+    }
+    logger.error('admin.accommodation_manual_create.error', { requestId: req.requestId, message: error?.message || error });
+    return sendErrorResponse(res, error, 'Accommodation booking could not be recorded. Please check the entered details.');
+  }
+});
+
+router.post('/accommodation-bookings/:id/send-email', authenticateAdmin, async (req, res) => {
+  try {
+    const booking = await AccommodationBooking.findById(req.params.id).lean();
+    if (!booking) return res.status(404).json({ message: 'Accommodation booking not found.' });
+    if (booking.paymentStatus !== 'PAID') return res.status(400).json({ message: 'Only paid bookings can receive confirmation emails.' });
+    await AccommodationBooking.findByIdAndUpdate(booking._id, {
+      $unset: { paymentEmailSentAt: 1, paymentEmailSendingAt: 1 },
+    });
+    const emailStatus = await deliverAccommodationConfirmation({ bookingId: booking._id });
+    return res.json({ message: emailStatus === 'SENT' ? 'Accommodation email sent.' : 'Accommodation email could not be sent.', emailStatus });
+  } catch (error) {
+    logger.error('admin.accommodation_email.error', { requestId: req.requestId, message: error?.message || error });
+    return sendErrorResponse(res, error, 'Accommodation email could not be sent.');
+  }
+});
+
 router.post('/accommodations', authenticateAdmin, async (req, res) => {
   try {
     const accommodation = new Accommodation(req.body);
@@ -1525,12 +1964,26 @@ router.delete('/accommodations/:id', authenticateAdmin, async (req, res) => {
 
 router.get('/accommodation-bookings', authenticateAdmin, async (req, res) => {
   try {
-    const { status } = req.query;
+    const { status, occupancyType, accommodationId, search } = req.query;
     const filter = status ? { paymentStatus: status } : {};
+    if (occupancyType) filter.occupancyType = String(occupancyType).toUpperCase();
+    if (mongoose.isValidObjectId(accommodationId)) filter.accommodationId = accommodationId;
+
+    if (search) {
+      const regex = new RegExp(escapeRegex(search), 'i');
+      const users = await User.find({
+        $or: [{ name: regex }, { email: regex }, { phone: regex }],
+      }).select('_id').lean();
+      filter.$or = [
+        { bookingNumber: regex },
+        { paymentReference: regex },
+        { userId: { $in: users.map((user) => user._id) } },
+      ];
+    }
 
     const bookings = await AccommodationBooking.find(filter)
-      .populate('userId', 'name email phone')
-      .populate('accommodationId', 'name location')
+      .populate('userId', 'name email phone role')
+      .populate('accommodationId', 'name location checkInTime checkOutTime')
       .sort({ createdAt: -1 });
 
     res.json(bookings);

@@ -24,6 +24,39 @@ const accommodationSchema = new mongoose.Schema({
     type: Number,
     required: true
   },
+  managedByOrganizers: {
+    type: Boolean,
+    default: false
+  },
+  manualBookingRates: {
+    singleBasePerNight: {
+      type: Number,
+      default: 5000,
+      min: 0
+    },
+    sharingBasePerPersonPerNight: {
+      type: Number,
+      default: 4000,
+      min: 0
+    },
+    gstRate: {
+      type: Number,
+      default: 5,
+      min: 0
+    }
+  },
+  bookingWindow: {
+    earliestCheckIn: {
+      type: String,
+      default: '2026-10-28',
+      match: /^\d{4}-\d{2}-\d{2}$/
+    },
+    latestCheckOut: {
+      type: String,
+      default: '2026-11-03',
+      match: /^\d{4}-\d{2}-\d{2}$/
+    }
+  },
   amenities: [{
     type: String
   }],
