@@ -3,7 +3,7 @@ import { calculateRegistrationTotals } from './pricing.js';
 export const AOA_COURSE_CAPACITY = 58;
 export const COUPON_ENABLED = true;
 export const COUPONS = {
-  AOACON50011: { discount: 500 },
+  AOACON500: { discount: 500 },
 };
 
 export const normalizeCouponCode = (code) =>
