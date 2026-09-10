@@ -14,7 +14,7 @@ import Counter from '../models/Counter.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { sendCollegeLetterReviewEmail, sendPasswordResetEmail, sendPaymentSuccessEmail } from '../utils/email.js';
 import { getBookingPhase } from '../utils/pricing.js';
-import { buildRegistrationInvoicePdf } from '../utils/invoice.js';
+import { buildAccommodationInvoicePdf, buildRegistrationInvoicePdf } from '../utils/invoice.js';
 import { generateLifetimeMembershipId } from '../utils/membershipGenerator.js';
 import {
   AOA_COURSE_CAPACITY,
@@ -1877,6 +1877,7 @@ router.post('/accommodation-bookings/manual', authenticateAdmin, async (req, res
       booking: populated,
       payment: { id: payment._id, amount: payment.amount, reference: payment.paymentReference },
       emailStatus,
+      invoicePreviewUrl: `/api/admin/accommodation-bookings/${booking._id}/invoice-preview`,
     });
   } catch (error) {
     if (error?.message?.startsWith('Enter a valid') || error?.message?.startsWith('Select ') || error?.message?.startsWith('Accommodation dates') || error?.message?.startsWith('Check-out')) {
@@ -1884,6 +1885,35 @@ router.post('/accommodation-bookings/manual', authenticateAdmin, async (req, res
     }
     logger.error('admin.accommodation_manual_create.error', { requestId: req.requestId, message: error?.message || error });
     return sendErrorResponse(res, error, 'Accommodation booking could not be recorded. Please check the entered details.');
+  }
+});
+
+router.get('/accommodation-bookings/:id/invoice-preview', authenticateAdmin, async (req, res) => {
+  try {
+    if (!mongoose.isValidObjectId(req.params.id)) {
+      return res.status(404).json({ message: 'Accommodation booking not found.' });
+    }
+    const booking = await AccommodationBooking.findById(req.params.id)
+      .populate('userId', 'name email phone role')
+      .populate('accommodationId', 'name location checkInTime checkOutTime')
+      .lean();
+    if (!booking) return res.status(404).json({ message: 'Accommodation booking not found.' });
+    if (booking.paymentStatus !== 'PAID') {
+      return res.status(400).json({ message: 'An invoice is available only for paid accommodation bookings.' });
+    }
+
+    const invoiceBuffer = buildAccommodationInvoicePdf(booking, booking.userId);
+    const invoiceNumber = String(booking.bookingNumber || booking._id).replace(/[^a-zA-Z0-9_-]/g, '_');
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `inline; filename="AOA_Invoice_${invoiceNumber}.pdf"`,
+      'Content-Length': invoiceBuffer.length,
+      'Cache-Control': 'private, no-store',
+    });
+    return res.send(invoiceBuffer);
+  } catch (error) {
+    logger.error('admin.accommodation_invoice_preview.error', { requestId: req.requestId, message: error?.message || error });
+    return sendErrorResponse(res, error, 'Accommodation invoice preview could not be generated.');
   }
 });
 
