@@ -160,10 +160,10 @@ export const buildAccommodationInvoicePdf = (booking, user) => {
   const doc = new jsPDF('p', 'mm', 'a4');
   addHeader(doc, 'Accommodation Invoice');
 
-  let y = 42;
+  let y = 60;
   addLine(doc, 'Invoice No', booking.bookingNumber || booking._id, y);
   y += 6;
-  addLine(doc, 'Date', new Date().toLocaleDateString('en-IN'), y);
+  addLine(doc, 'Payment Date', new Date(booking.paymentDate || booking.updatedAt || Date.now()).toLocaleDateString('en-IN'), y);
   y += 6;
   addLine(doc, 'Name', user?.name, y);
   y += 6;
@@ -175,10 +175,8 @@ export const buildAccommodationInvoicePdf = (booking, user) => {
   }
 
   y += 4;
-  doc.setTextColor(0);
-  doc.setFontSize(11);
-  doc.text('Booking Details', 20, y);
-  y += 8;
+  addSectionTitle(doc, 'Booking Details', y);
+  y += 9;
   addLine(doc, 'Hotel', booking.accommodationId?.name || 'N/A', y);
   y += 6;
   addLine(doc, 'Location', booking.accommodationId?.location || 'N/A', y);
@@ -210,10 +208,8 @@ export const buildAccommodationInvoicePdf = (booking, user) => {
   addLine(doc, 'Nights', booking.numberOfNights, y);
 
   y += 8;
-  doc.setTextColor(0);
-  doc.setFontSize(11);
-  doc.text('Payment Summary', 20, y);
-  y += 8;
+  addSectionTitle(doc, 'Payment Summary', y);
+  y += 9;
   addLine(doc, 'Rate per night', formatAmount(booking.baseRatePerNight), y);
   y += 6;
   addLine(doc, 'Base amount', formatAmount(booking.baseAmount), y);
@@ -226,7 +222,7 @@ export const buildAccommodationInvoicePdf = (booking, user) => {
     addLine(doc, 'Payment method', booking.paymentMethod.replaceAll('_', ' '), y);
     y += 6;
   }
-  if (booking.paymentReference) {
+  if (booking.paymentReference && !/^manual_[a-z]+_no_reference_/i.test(booking.paymentReference)) {
     addLine(doc, 'Payment reference', booking.paymentReference, y);
   }
 
