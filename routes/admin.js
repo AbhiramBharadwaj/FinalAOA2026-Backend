@@ -1933,6 +1933,44 @@ router.post('/accommodation-bookings/:id/send-email', authenticateAdmin, async (
   }
 });
 
+router.delete('/accommodation-bookings/:id', authenticateAdmin, async (req, res) => {
+  if (!mongoose.isValidObjectId(req.params.id)) {
+    return res.status(404).json({ message: 'Accommodation booking not found.' });
+  }
+
+  const session = await mongoose.startSession();
+  try {
+    let deletedBooking;
+    let deletedPayments = 0;
+    await session.withTransaction(async () => {
+      deletedBooking = await AccommodationBooking.findByIdAndDelete(req.params.id, { session }).lean();
+      if (!deletedBooking) return;
+      const paymentResult = await Payment.deleteMany(
+        { accommodationBookingId: deletedBooking._id, paymentType: 'ACCOMMODATION' },
+        { session }
+      );
+      deletedPayments = paymentResult.deletedCount || 0;
+    });
+
+    if (!deletedBooking) return res.status(404).json({ message: 'Accommodation booking not found.' });
+    logger.info('admin.accommodation_booking_deleted', {
+      requestId: req.requestId,
+      bookingId: deletedBooking._id,
+      bookingNumber: deletedBooking.bookingNumber,
+      deletedPayments,
+    });
+    return res.json({
+      message: `${deletedBooking.bookingNumber || 'Accommodation booking'} deleted successfully.`,
+      deletedPayments,
+    });
+  } catch (error) {
+    logger.error('admin.accommodation_booking_delete.error', { requestId: req.requestId, message: error?.message || error });
+    return sendErrorResponse(res, error, 'Accommodation booking could not be deleted.');
+  } finally {
+    await session.endSession();
+  }
+});
+
 router.post('/accommodations', authenticateAdmin, async (req, res) => {
   try {
     const accommodation = new Accommodation(req.body);
