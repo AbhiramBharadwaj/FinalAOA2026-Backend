@@ -5,7 +5,7 @@ import fs from 'fs';
 import Abstract from '../models/Abstract.js';
 import Registration from '../models/Registration.js';
 import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
-import { sendAbstractSubmittedEmail, sendAbstractReviewEmail } from '../utils/email.js';
+import { sendAbstractSubmittedEmail, sendAbstractReviewEmail, sendFinalPosterUploadedEmail } from '../utils/email.js';
 import logger from '../utils/logger.js';
 import { getPublicUploadPath, getUploadDirectory } from '../utils/uploadStorage.js';
 import { sendErrorResponse } from '../utils/httpError.js';
@@ -80,6 +80,80 @@ const handleAbstractUpload = (req, res, next) => {
 
     return res.status(400).json({ message: error.message || 'Invalid abstract file upload' });
   });
+};
+
+const posterStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const posterUploadDir = getUploadDirectory('final-posters');
+    fs.mkdirSync(posterUploadDir, { recursive: true });
+    cb(null, posterUploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, file.fieldname + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const posterUpload = multer({
+  storage: posterStorage,
+  limits: {
+    fileSize: 25 * 1024 * 1024,
+  },
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'application/pdf') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only PDF files are allowed for final e-poster upload'), false);
+    }
+  }
+});
+
+const handleFinalPosterUpload = (req, res, next) => {
+  posterUpload.single('finalPoster')(req, res, (error) => {
+    if (!error) {
+      if (req.file) {
+        req.file.path = getPublicUploadPath('final-posters', req.file.filename);
+      }
+      return next();
+    }
+
+    logger.warn('Final e-poster upload middleware failed.', {
+      userId: req.user?._id?.toString?.(),
+      code: error.code,
+      message: error.message,
+    });
+
+    if (error.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ message: 'Final e-poster file size must be less than 25MB' });
+    }
+
+    return res.status(400).json({ message: error.message || 'Invalid final e-poster upload' });
+  });
+};
+
+const requireApprovedAbstractForPoster = async (req, res, next) => {
+  try {
+    const abstract = await Abstract.findOne({
+      userId: req.user._id,
+      status: 'APPROVED',
+    }).sort({ createdAt: -1 });
+
+    if (!abstract) {
+      return res.status(403).json({
+        message: 'Final e-poster upload is available only after abstract approval.',
+      });
+    }
+
+    req.approvedAbstract = abstract;
+    next();
+  } catch (error) {
+    logger.error('Final e-poster eligibility check failed.', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
+    return sendErrorResponse(res, error, 'Final e-poster upload eligibility could not be checked. Please try again.');
+  }
 };
 
 router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractUpload, async (req, res) => {
@@ -246,6 +320,47 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractU
     }
 
     return sendErrorResponse(res, error, 'Abstract could not be submitted. Please try again.');
+  }
+});
+
+router.post('/final-poster', authenticateUser, requireProfileComplete, requireApprovedAbstractForPoster, handleFinalPosterUpload, async (req, res) => {
+  try {
+    logger.info(`${req.actorName || 'User'} is uploading a final e-poster.`);
+
+    if (!req.file) {
+      return res.status(400).json({ message: 'Final e-poster PDF file is required' });
+    }
+
+    const abstract = req.approvedAbstract;
+
+    abstract.finalPosterPath = req.file.path;
+    abstract.finalPosterOriginalName = req.file.originalname;
+    abstract.finalPosterMimeType = req.file.mimetype;
+    abstract.finalPosterSize = req.file.size;
+    abstract.finalPosterUploadedAt = new Date();
+
+    await abstract.save();
+    await abstract.populate('userId', 'name email');
+    await abstract.populate('reviewedBy', 'name');
+
+    logger.info(`${req.actorName || 'User'} uploaded a final e-poster.`);
+    res.json({
+      message: 'Final e-poster uploaded successfully',
+      abstract,
+    });
+
+    try {
+      await sendFinalPosterUploadedEmail(abstract);
+    } catch (emailError) {
+      logger.warn('Final e-poster upload email failed to send.', { message: emailError?.message || emailError });
+    }
+  } catch (error) {
+    logger.error('Final e-poster upload failed.', {
+      requestId: req.requestId,
+      userId: req.user?._id,
+      message: error?.message || error,
+    });
+    return sendErrorResponse(res, error, 'Final e-poster could not be uploaded. Please try again.');
   }
 });
 

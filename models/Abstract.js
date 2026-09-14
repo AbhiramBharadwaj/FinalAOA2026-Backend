@@ -33,6 +33,23 @@ const abstractSchema = new mongoose.Schema({
     type: String,
     required: true
   },
+  finalPosterPath: {
+    type: String
+  },
+  finalPosterOriginalName: {
+    type: String,
+    trim: true
+  },
+  finalPosterMimeType: {
+    type: String,
+    trim: true
+  },
+  finalPosterSize: {
+    type: Number
+  },
+  finalPosterUploadedAt: {
+    type: Date
+  },
   status: {
     type: String,
     enum: ['PENDING', 'APPROVED', 'REJECTED'],

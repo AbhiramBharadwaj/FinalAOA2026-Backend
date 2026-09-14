@@ -311,7 +311,7 @@ export const sendAbstractReviewEmail = async (abstract) => {
     },
     APPROVED: {
       label: 'Approved',
-      message: 'Your abstract has been approved.',
+      message: 'Your abstract has been approved. Please log in to your dashboard and upload your final e-poster PDF.',
     },
     REJECTED: {
       label: 'Rejected',
@@ -333,6 +333,8 @@ export const sendAbstractReviewEmail = async (abstract) => {
     `Category: ${categoryLabel}`,
     abstract.reviewComments ? `Comments: ${abstract.reviewComments}` : null,
     '',
+    status === 'APPROVED' ? 'Final e-poster format: PDF.' : null,
+    '',
     'Thanks,',
     'AOACON 2026 Team',
   ]
@@ -351,10 +353,56 @@ export const sendAbstractReviewEmail = async (abstract) => {
       <div style="margin:0;"><strong>Category:</strong> ${categoryLabel}</div>
       ${commentsHtml}
     </div>
+    ${
+      status === 'APPROVED'
+        ? '<p style="margin:0 0 10px;">Next step: log in to your dashboard and upload your final e-poster PDF.</p>'
+        : ''
+    }
     <p style="margin:0;">You can view your abstract status in the dashboard.</p>
   `;
 
   const html = wrapEmail(`Abstract ${statusLabel}`, bodyHtml);
+
+  return sendEmail({
+    to: user.email,
+    subject,
+    text,
+    html,
+  });
+};
+
+export const sendFinalPosterUploadedEmail = async (abstract) => {
+  const user = abstract.userId;
+  const subject = 'AOACON 2026 Final E-Poster Uploaded';
+  const uploadedAt = abstract.finalPosterUploadedAt
+    ? new Date(abstract.finalPosterUploadedAt).toLocaleString('en-IN')
+    : new Date().toLocaleString('en-IN');
+  const text = [
+    `Hello ${user.name},`,
+    '',
+    'Your final e-poster has been uploaded successfully.',
+    `Title: ${abstract.title || 'N/A'}`,
+    `File: ${abstract.finalPosterOriginalName || 'Final e-poster PDF'}`,
+    `Uploaded at: ${uploadedAt}`,
+    '',
+    'You can view or replace it from your dashboard.',
+    '',
+    'Thanks,',
+    'AOACON 2026 Team',
+  ].join('\n');
+
+  const bodyHtml = `
+    <p style="margin:0 0 10px;">Hello ${user.name},</p>
+    <p style="margin:0 0 12px;">Your final e-poster has been uploaded successfully.</p>
+    <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin:0 0 12px;">
+      <div style="margin:0 0 6px;"><strong>Title:</strong> ${abstract.title || 'N/A'}</div>
+      <div style="margin:0 0 6px;"><strong>File:</strong> ${abstract.finalPosterOriginalName || 'Final e-poster PDF'}</div>
+      <div style="margin:0;"><strong>Uploaded at:</strong> ${uploadedAt}</div>
+    </div>
+    <p style="margin:0;">You can view or replace it from your dashboard.</p>
+  `;
+
+  const html = wrapEmail('Final E-Poster Uploaded', bodyHtml);
 
   return sendEmail({
     to: user.email,
