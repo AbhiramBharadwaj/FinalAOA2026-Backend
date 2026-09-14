@@ -100,10 +100,19 @@ const posterUpload = multer({
     fileSize: 25 * 1024 * 1024,
   },
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf') {
+    const allowedMimeTypes = new Set([
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/vnd.ms-powerpoint',
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    ]);
+    const allowedExtensions = new Set(['pdf', 'docx', 'ppt', 'pptx']);
+    const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
+
+    if (allowedMimeTypes.has(file.mimetype) || allowedExtensions.has(fileExtension)) {
       cb(null, true);
     } else {
-      cb(new Error('Only PDF files are allowed for final e-poster upload'), false);
+      cb(new Error('Only PDF, DOCX, PPT, or PPTX files are allowed for final e-poster upload'), false);
     }
   }
 });
@@ -328,7 +337,7 @@ router.post('/final-poster', authenticateUser, requireProfileComplete, requireAp
     logger.info(`${req.actorName || 'User'} is uploading a final e-poster.`);
 
     if (!req.file) {
-      return res.status(400).json({ message: 'Final e-poster PDF file is required' });
+      return res.status(400).json({ message: 'Final e-poster file is required' });
     }
 
     const abstract = req.approvedAbstract;

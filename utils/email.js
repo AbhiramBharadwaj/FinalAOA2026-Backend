@@ -311,7 +311,7 @@ export const sendAbstractReviewEmail = async (abstract) => {
     },
     APPROVED: {
       label: 'Approved',
-      message: 'Your abstract has been approved. Please log in to your dashboard and upload your final e-poster PDF.',
+      message: 'Your abstract has been approved. Please log in to your dashboard and upload your final e-poster file.',
     },
     REJECTED: {
       label: 'Rejected',
@@ -333,7 +333,7 @@ export const sendAbstractReviewEmail = async (abstract) => {
     `Category: ${categoryLabel}`,
     abstract.reviewComments ? `Comments: ${abstract.reviewComments}` : null,
     '',
-    status === 'APPROVED' ? 'Final e-poster format: PDF.' : null,
+    status === 'APPROVED' ? 'Final e-poster format: PDF, DOCX, PPT, or PPTX.' : null,
     '',
     'Thanks,',
     'AOACON 2026 Team',
@@ -355,7 +355,7 @@ export const sendAbstractReviewEmail = async (abstract) => {
     </div>
     ${
       status === 'APPROVED'
-        ? '<p style="margin:0 0 10px;">Next step: log in to your dashboard and upload your final e-poster PDF.</p>'
+        ? '<p style="margin:0 0 10px;">Next step: log in to your dashboard and upload your final e-poster file in PDF, DOCX, PPT, or PPTX format.</p>'
         : ''
     }
     <p style="margin:0;">You can view your abstract status in the dashboard.</p>
@@ -382,7 +382,7 @@ export const sendFinalPosterUploadedEmail = async (abstract) => {
     '',
     'Your final e-poster has been uploaded successfully.',
     `Title: ${abstract.title || 'N/A'}`,
-    `File: ${abstract.finalPosterOriginalName || 'Final e-poster PDF'}`,
+    `File: ${abstract.finalPosterOriginalName || 'Final e-poster file'}`,
     `Uploaded at: ${uploadedAt}`,
     '',
     'You can view or replace it from your dashboard.',
@@ -396,7 +396,7 @@ export const sendFinalPosterUploadedEmail = async (abstract) => {
     <p style="margin:0 0 12px;">Your final e-poster has been uploaded successfully.</p>
     <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin:0 0 12px;">
       <div style="margin:0 0 6px;"><strong>Title:</strong> ${abstract.title || 'N/A'}</div>
-      <div style="margin:0 0 6px;"><strong>File:</strong> ${abstract.finalPosterOriginalName || 'Final e-poster PDF'}</div>
+      <div style="margin:0 0 6px;"><strong>File:</strong> ${abstract.finalPosterOriginalName || 'Final e-poster file'}</div>
       <div style="margin:0;"><strong>Uploaded at:</strong> ${uploadedAt}</div>
     </div>
     <p style="margin:0;">You can view or replace it from your dashboard.</p>
