@@ -1,6 +1,7 @@
 import express from 'express';
 import multer from 'multer';
 import path from 'path';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import VideoSubmission from '../models/VideoSubmission.js';
 import Registration from '../models/Registration.js';
 import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
@@ -34,48 +35,52 @@ const upload = multer({
   },
 });
 
-const getBunnyStorageConfig = () => {
-  const zone = process.env.BUNNY_STORAGE_ZONE;
-  const password = process.env.BUNNY_STORAGE_PASSWORD;
-  const hostname = process.env.BUNNY_STORAGE_HOSTNAME;
-  const publicBaseUrl = process.env.BUNNY_PUBLIC_BASE_URL;
+const getR2StorageConfig = () => {
+  const accountId = process.env.R2_ACCOUNT_ID;
+  const accessKeyId = process.env.R2_ACCESS_KEY_ID;
+  const secretAccessKey = process.env.R2_SECRET_ACCESS_KEY;
+  const bucketName = process.env.R2_BUCKET_NAME;
+  const publicBaseUrl = process.env.R2_PUBLIC_BASE_URL;
+  const endpoint = process.env.R2_ENDPOINT || (accountId ? `https://${accountId}.r2.cloudflarestorage.com` : '');
 
-  if (!zone || !password || !hostname || !publicBaseUrl) {
-    throw new Error('Bunny storage environment variables are not fully configured');
+  if (!accessKeyId || !secretAccessKey || !bucketName || !publicBaseUrl || !endpoint) {
+    throw new Error('Cloudflare R2 environment variables are not fully configured');
   }
 
   return {
-    zone,
-    password,
-    hostname: hostname.replace(/^https?:\/\//, '').replace(/\/+$/, ''),
+    accessKeyId,
+    secretAccessKey,
+    bucketName,
+    endpoint: endpoint.replace(/\/+$/, ''),
     publicBaseUrl: publicBaseUrl.replace(/\/+$/, ''),
   };
 };
 
-const buildBunnyObjectKey = (req, file) => {
+const buildR2ObjectKey = (req, file) => {
   const extension = path.extname(file.originalname || '').toLowerCase() || '.mp4';
   const safeUserId = req.user?._id?.toString?.() || 'unknown-user';
   const uniqueSuffix = `${Date.now()}-${Math.round(Math.random() * 1e9)}`;
   return `videos/${safeUserId}/${file.fieldname}-${uniqueSuffix}${extension}`;
 };
 
-const uploadToBunnyStorage = async ({ file, objectKey }) => {
-  const { zone, password, hostname, publicBaseUrl } = getBunnyStorageConfig();
-  const uploadUrl = `https://${hostname}/${zone}/${objectKey}`;
-
-  const response = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: {
-      AccessKey: password,
-      'Content-Type': file.mimetype || 'application/octet-stream',
+const uploadToR2Storage = async ({ file, objectKey }) => {
+  const { accessKeyId, secretAccessKey, bucketName, endpoint, publicBaseUrl } = getR2StorageConfig();
+  const client = new S3Client({
+    region: 'auto',
+    endpoint,
+    forcePathStyle: true,
+    credentials: {
+      accessKeyId,
+      secretAccessKey,
     },
-    body: file.buffer,
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Bunny upload failed with ${response.status}: ${errorText}`);
-  }
+  await client.send(new PutObjectCommand({
+    Bucket: bucketName,
+    Key: objectKey,
+    Body: file.buffer,
+    ContentType: file.mimetype || 'application/octet-stream',
+  }));
 
   return `${publicBaseUrl}/${objectKey}`;
 };
@@ -104,9 +109,9 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleVideoUplo
       return res.status(400).json({ message: 'Video file is required' });
     }
 
-    const uploadedFileUrl = await uploadToBunnyStorage({
+    const uploadedFileUrl = await uploadToR2Storage({
       file: req.file,
-      objectKey: buildBunnyObjectKey(req, req.file),
+      objectKey: buildR2ObjectKey(req, req.file),
     });
 
     const blockingSubmission = await VideoSubmission.findOne({

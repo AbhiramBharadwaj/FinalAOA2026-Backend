@@ -9,10 +9,10 @@ const requiredEnvironmentKeys = [
   'RAZORPAY_WEBHOOK_SECRET',
   'RESEND_API_KEY',
   'RESEND_FROM',
-  'BUNNY_STORAGE_ZONE',
-  'BUNNY_STORAGE_PASSWORD',
-  'BUNNY_STORAGE_HOSTNAME',
-  'BUNNY_PUBLIC_BASE_URL',
+  'R2_ACCESS_KEY_ID',
+  'R2_SECRET_ACCESS_KEY',
+  'R2_BUCKET_NAME',
+  'R2_PUBLIC_BASE_URL',
 ];
 
 router.get('/live', (req, res) =>
