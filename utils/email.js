@@ -147,6 +147,41 @@ export const sendPasswordResetEmail = async ({ email, name, resetLink, isAdmin =
   });
 };
 
+export const sendFacultyCvOtpEmail = async ({ email, name, otp }) => {
+  const subject = 'AOACON 2026 Faculty CV Upload OTP';
+  const text = [
+    `Hello ${name || 'Doctor'},`,
+    '',
+    'Use the following OTP to continue with your AOACON 2026 faculty CV upload:',
+    '',
+    otp,
+    '',
+    'This OTP is valid for 10 minutes.',
+    '',
+    'If you did not request this, you can safely ignore this email.',
+    '',
+    'Thanks,',
+    'AOACON 2026 Team',
+  ].join('\n');
+
+  const bodyHtml = `
+    <p style="margin:0 0 10px;">Hello ${name || 'Doctor'},</p>
+    <p style="margin:0 0 12px;">Use this OTP to continue with your AOACON 2026 faculty CV upload.</p>
+    <div style="font-size:26px;font-weight:700;letter-spacing:6px;background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:14px 16px;text-align:center;color:#0f172a;margin:0 0 12px;">
+      ${otp}
+    </div>
+    <p style="margin:0 0 10px;">This OTP is valid for 10 minutes.</p>
+    <p style="margin:0;color:#6b7280;font-size:12px;">If you did not request this, you can safely ignore this email.</p>
+  `;
+
+  return sendEmail({
+    to: email,
+    subject,
+    text,
+    html: wrapEmail('Faculty CV Upload OTP', bodyHtml),
+  });
+};
+
 export const sendRegistrationEmail = async (user) => {
   const subject = 'AOACON 2026 Registration Received';
   const text = [

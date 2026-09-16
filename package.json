@@ -11,7 +11,8 @@
     "seed": "node seedData.js",
     "migrate:user-roles": "node scripts/migrate-user-roles.js",
     "email:announcement": "node scripts/send-announcement-email.js",
-    "email:announcement:bulk": "node scripts/send-bulk-announcement.js"
+    "email:announcement:bulk": "node scripts/send-bulk-announcement.js",
+    "faculty-cv:sync": "node scripts/sync-faculty-cvs-from-sheet.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1132.0",

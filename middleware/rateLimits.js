@@ -30,6 +30,12 @@ export const passwordResetLimiter = buildLimiter({
   message: 'Too many password-reset requests. Please wait before trying again.',
 });
 
+export const facultyCvOtpLimiter = buildLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  message: 'Too many OTP requests. Please wait before trying again.',
+});
+
 export const accountRegistrationLimiter = buildLimiter({
   windowMs: 60 * 60 * 1000,
   limit: 5,
