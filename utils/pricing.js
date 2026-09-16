@@ -4,7 +4,7 @@
 export const getBookingPhase = (now = new Date()) => {
   const year = 2026;
 
-  const regularPricingStarts = new Date(year, 8, 16);
+  const regularPricingStarts = new Date(year, 9, 1);
 
   const regularEnd = new Date(year, 9, 15);
 
