@@ -50,6 +50,22 @@ const abstractSchema = new mongoose.Schema({
   finalPosterUploadedAt: {
     type: Date
   },
+  finalPosterStatus: {
+    type: String,
+    enum: ['PENDING', 'APPROVED', 'REJECTED'],
+    default: 'PENDING'
+  },
+  finalPosterReviewComments: {
+    type: String,
+    default: ''
+  },
+  finalPosterReviewedBy: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'Admin'
+  },
+  finalPosterReviewedAt: {
+    type: Date
+  },
   status: {
     type: String,
     enum: ['PENDING', 'APPROVED', 'REJECTED'],

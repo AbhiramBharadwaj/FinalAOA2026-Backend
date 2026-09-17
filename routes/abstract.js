@@ -5,7 +5,12 @@ import fs from 'fs';
 import Abstract from '../models/Abstract.js';
 import Registration from '../models/Registration.js';
 import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
-import { sendAbstractSubmittedEmail, sendAbstractReviewEmail, sendFinalPosterUploadedEmail } from '../utils/email.js';
+import {
+  sendAbstractSubmittedEmail,
+  sendAbstractReviewEmail,
+  sendFinalPosterUploadedEmail,
+  sendFinalPosterReviewEmail,
+} from '../utils/email.js';
 import logger from '../utils/logger.js';
 import { getPublicUploadPath, getUploadDirectory } from '../utils/uploadStorage.js';
 import { sendErrorResponse } from '../utils/httpError.js';
@@ -347,6 +352,10 @@ router.post('/final-poster', authenticateUser, requireProfileComplete, requireAp
     abstract.finalPosterMimeType = req.file.mimetype;
     abstract.finalPosterSize = req.file.size;
     abstract.finalPosterUploadedAt = new Date();
+    abstract.finalPosterStatus = 'PENDING';
+    abstract.finalPosterReviewComments = '';
+    abstract.finalPosterReviewedBy = null;
+    abstract.finalPosterReviewedAt = null;
 
     await abstract.save();
     await abstract.populate('userId', 'name email');
@@ -498,6 +507,50 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
   } catch (error) {
     logger.error('Abstract review failed.', { message: error?.message || error });
     return sendErrorResponse(res, error, 'Abstract review could not be saved. Please try again.');
+  }
+});
+
+router.put('/final-poster/review/:id', authenticateAdmin, async (req, res) => {
+  try {
+    const { status, reviewComments } = req.body;
+    const abstractId = req.params.id;
+
+    if (!['APPROVED', 'REJECTED'].includes(status)) {
+      return res.status(400).json({ message: 'Invalid final e-poster review status' });
+    }
+
+    const abstract = await Abstract.findById(abstractId);
+
+    if (!abstract) {
+      return res.status(404).json({ message: 'Abstract not found' });
+    }
+
+    if (!abstract.finalPosterPath) {
+      return res.status(400).json({ message: 'No final e-poster has been uploaded for this abstract' });
+    }
+
+    abstract.finalPosterStatus = status;
+    abstract.finalPosterReviewComments = reviewComments || '';
+    abstract.finalPosterReviewedBy = req.admin._id;
+    abstract.finalPosterReviewedAt = new Date();
+
+    await abstract.save();
+    await abstract.populate(['userId', 'reviewedBy', 'finalPosterReviewedBy']);
+
+    logger.info(`${req.actorName || 'Admin'} reviewed a final e-poster with status ${status}.`);
+    res.json({
+      message: 'Final e-poster reviewed successfully',
+      abstract
+    });
+
+    try {
+      await sendFinalPosterReviewEmail(abstract);
+    } catch (emailError) {
+      logger.warn('Final e-poster review email failed to send.', { message: emailError?.message || emailError });
+    }
+  } catch (error) {
+    logger.error('Final e-poster review failed.', { message: error?.message || error });
+    return sendErrorResponse(res, error, 'Final e-poster review could not be saved. Please try again.');
   }
 });
 

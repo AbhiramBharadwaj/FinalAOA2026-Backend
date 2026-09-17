@@ -447,6 +447,75 @@ export const sendFinalPosterUploadedEmail = async (abstract) => {
   });
 };
 
+export const sendFinalPosterReviewEmail = async (abstract) => {
+  const user = abstract.userId;
+  const status = abstract.finalPosterStatus;
+  const rulesUrl = 'https://www.aoacon2026.com/abstract/rules';
+  const statusConfig = {
+    APPROVED: {
+      label: 'Accepted',
+      message: 'Congratulations. Your final e-poster has been accepted for AOACON 2026.',
+    },
+    REJECTED: {
+      label: 'Rejected',
+      message: 'Your final e-poster has been rejected because it does not follow the required AOACON 2026 e-poster template guidelines.',
+    },
+  }[status];
+
+  if (!statusConfig) {
+    throw new Error(`Unsupported final e-poster review status: ${status}`);
+  }
+
+  const { label: statusLabel, message: statusMessage } = statusConfig;
+  const subject = `AOACON 2026 Final E-Poster ${statusLabel}`;
+  const text = [
+    `Hello ${user.name},`,
+    '',
+    statusMessage,
+    `Title: ${abstract.title || 'N/A'}`,
+    `File: ${abstract.finalPosterOriginalName || 'Final e-poster file'}`,
+    abstract.finalPosterReviewComments ? `Comments: ${abstract.finalPosterReviewComments}` : null,
+    '',
+    status === 'REJECTED'
+      ? `Please download the official e-poster template from ${rulesUrl}, add your information, and re-upload it through the E-poster submission section.`
+      : 'No further e-poster upload action is required at this time.',
+    '',
+    'Thanks,',
+    'AOACON 2026 Team',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const commentsHtml = abstract.finalPosterReviewComments
+    ? `<div style="margin-top:10px;"><strong>Comments:</strong> ${abstract.finalPosterReviewComments}</div>`
+    : '';
+
+  const rejectedInstructionsHtml = status === 'REJECTED'
+    ? `<p style="margin:0 0 10px;">Please download the official e-poster template from the Abstract Rules page, add your information, and re-upload it through the E-poster submission section.</p>
+       <p style="margin:0 0 10px;"><a href="${rulesUrl}">Download template and view guidelines</a></p>`
+    : '<p style="margin:0;">No further e-poster upload action is required at this time.</p>';
+
+  const bodyHtml = `
+    <p style="margin:0 0 10px;">Hello ${user.name},</p>
+    <p style="margin:0 0 12px;">${statusMessage}</p>
+    <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin:0 0 12px;">
+      <div style="margin:0 0 6px;"><strong>Title:</strong> ${abstract.title || 'N/A'}</div>
+      <div style="margin:0;"><strong>File:</strong> ${abstract.finalPosterOriginalName || 'Final e-poster file'}</div>
+      ${commentsHtml}
+    </div>
+    ${rejectedInstructionsHtml}
+  `;
+
+  const html = wrapEmail(`Final E-Poster ${statusLabel}`, bodyHtml);
+
+  return sendEmail({
+    to: user.email,
+    subject,
+    text,
+    html,
+  });
+};
+
 export const sendTestEmail = async (to) => {
   const subject = 'AOACON 2026 Email Test';
   const text = [
