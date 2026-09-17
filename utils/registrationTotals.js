@@ -1,6 +1,12 @@
 import { calculateRegistrationTotals } from './pricing.js';
 
 export const AOA_COURSE_CAPACITY = 58;
+export const WORKSHOP_CAPACITIES = {
+  'labour-analgesia': 50,
+  'critical-incidents': 40,
+  pocus: 40,
+  'maternal-collapse': 40,
+};
 export const COUPON_ENABLED = true;
 export const COUPONS = {
   AOACON500: { discount: 500 },
@@ -11,6 +17,29 @@ export const normalizeCouponCode = (code) =>
 
 export const isAoaCourseFullForUser = (seatsUsed, hasExistingReservation = false) =>
   Number(seatsUsed || 0) >= AOA_COURSE_CAPACITY && !hasExistingReservation;
+
+export const getWorkshopCapacity = (selectedWorkshop) =>
+  WORKSHOP_CAPACITIES[selectedWorkshop] || 0;
+
+export const isWorkshopFullForUser = (
+  seatsUsed,
+  selectedWorkshop,
+  hasExistingReservation = false
+) => {
+  const capacity = getWorkshopCapacity(selectedWorkshop);
+  return capacity > 0 && Number(seatsUsed || 0) >= capacity && !hasExistingReservation;
+};
+
+export const buildWorkshopAvailability = (selectedWorkshop, seatsUsed) => {
+  const capacity = getWorkshopCapacity(selectedWorkshop);
+  const used = Number(seatsUsed || 0);
+  return {
+    capacity,
+    used,
+    remaining: Math.max(0, capacity - used),
+    full: capacity > 0 && used >= capacity,
+  };
+};
 
 export const resolveCouponDiscount = (code, basePrice) => {
   const normalized = normalizeCouponCode(code);

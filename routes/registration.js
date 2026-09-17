@@ -5,9 +5,12 @@ import { authenticateUser, requireProfileComplete } from '../middleware/auth.js'
 import { getBookingPhase, calculateRegistrationTotals, getAddOnPricing } from '../utils/pricing.js';
 import {
   AOA_COURSE_CAPACITY,
+  WORKSHOP_CAPACITIES,
+  buildWorkshopAvailability,
   COUPON_ENABLED,
   computeRegistrationTotals,
   isAoaCourseFullForUser,
+  isWorkshopFullForUser,
   normalizeCouponCode,
   resolveCouponDiscount,
 } from '../utils/registrationTotals.js';
@@ -30,6 +33,30 @@ const normalizeRole = (role) => {
   return trimmed;
 };
 
+const ACTIVE_WORKSHOP_SEAT_STATUSES = ['PENDING', 'PAID'];
+const WORKSHOP_KEYS = Object.keys(WORKSHOP_CAPACITIES);
+
+const countWorkshopSeats = (selectedWorkshop, excludeRegistrationId) => {
+  const filter = {
+    addWorkshop: true,
+    selectedWorkshop,
+    paymentStatus: { $in: ACTIVE_WORKSHOP_SEAT_STATUSES },
+  };
+  if (excludeRegistrationId) {
+    filter._id = { $ne: excludeRegistrationId };
+  }
+  return Registration.countDocuments(filter);
+};
+
+const getWorkshopAvailability = async () => {
+  const pairs = await Promise.all(
+    WORKSHOP_KEYS.map(async (workshop) => [
+      workshop,
+      buildWorkshopAvailability(workshop, await countWorkshopSeats(workshop)),
+    ])
+  );
+  return Object.fromEntries(pairs);
+};
 
 router.post(
   '/',
@@ -104,6 +131,25 @@ router.post(
 
       if (wantsWorkshop && !selectedWorkshop) {
         return res.status(400).json({ message: 'Workshop selection is required' });
+      }
+
+      if (wantsWorkshop) {
+        const hasExistingWorkshopReservation = Boolean(
+          registration?.addWorkshop && registration?.selectedWorkshop === selectedWorkshop
+        );
+        const workshopSeatsUsed = await countWorkshopSeats(
+          selectedWorkshop,
+          hasExistingWorkshopReservation ? registration?._id : null
+        );
+        if (isWorkshopFullForUser(workshopSeatsUsed, selectedWorkshop)) {
+          const availability = buildWorkshopAvailability(selectedWorkshop, workshopSeatsUsed);
+          return res.status(409).json({
+            message: 'This workshop is full. Please select another workshop.',
+            code: 'WORKSHOP_FULL',
+            workshop: selectedWorkshop,
+            availability,
+          });
+        }
       }
 
       
@@ -459,6 +505,7 @@ router.get('/pricing', authenticateUser, async (req, res) => {
       aoaCourseCount,
       hasAoaCourseReservation
     );
+    const workshops = await getWorkshopAvailability();
 
     res.json({
       bookingPhase,
@@ -501,6 +548,7 @@ router.get('/pricing', authenticateUser, async (req, res) => {
         aoaCourseFull,
         aoaCourseLimit: AOA_COURSE_CAPACITY,
         hasAoaCourseReservation,
+        workshops,
         pricingRole,
       },
     });

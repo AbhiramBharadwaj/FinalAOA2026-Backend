@@ -18,7 +18,9 @@ import { buildAccommodationInvoicePdf, buildRegistrationInvoicePdf } from '../ut
 import { generateLifetimeMembershipId } from '../utils/membershipGenerator.js';
 import {
   AOA_COURSE_CAPACITY,
+  buildWorkshopAvailability,
   computeRegistrationTotals,
+  isWorkshopFullForUser,
   normalizeCouponCode,
 } from '../utils/registrationTotals.js';
 import { razorpay } from '../services/razorpayClient.js';
@@ -43,6 +45,14 @@ const AOA_COURSE_SELECTION_FILTER = {
     { addAoaCourse: true },
   ],
 };
+const ACTIVE_WORKSHOP_SEAT_STATUSES = ['PENDING', 'PAID'];
+
+const countWorkshopSeats = (selectedWorkshop) =>
+  Registration.countDocuments({
+    addWorkshop: true,
+    selectedWorkshop,
+    paymentStatus: { $in: ACTIVE_WORKSHOP_SEAT_STATUSES },
+  });
 
 const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
@@ -658,6 +668,17 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
 
     if (wantsWorkshop && !selectedWorkshop) {
       return res.status(400).json({ message: 'Workshop selection is required.' });
+    }
+    if (wantsWorkshop) {
+      const workshopSeatsUsed = await countWorkshopSeats(selectedWorkshop);
+      if (isWorkshopFullForUser(workshopSeatsUsed, selectedWorkshop)) {
+        return res.status(409).json({
+          message: 'This workshop is full. Please select another workshop.',
+          code: 'WORKSHOP_FULL',
+          workshop: selectedWorkshop,
+          availability: buildWorkshopAvailability(selectedWorkshop, workshopSeatsUsed),
+        });
+      }
     }
     if (wantsAoaCourse && normalizedRole === 'PGS') {
       return res.status(400).json({

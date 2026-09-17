@@ -2,8 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
   AOA_COURSE_CAPACITY,
+  WORKSHOP_CAPACITIES,
+  buildWorkshopAvailability,
   computeRegistrationTotals,
   isAoaCourseFullForUser,
+  isWorkshopFullForUser,
   normalizeCouponCode,
 } from '../utils/registrationTotals.js';
 
@@ -46,4 +49,29 @@ test('uses the configured AOA course capacity', () => {
 test('keeps a full AOA course available to users who already reserved a seat', () => {
   assert.equal(isAoaCourseFullForUser(AOA_COURSE_CAPACITY, true), false);
   assert.equal(isAoaCourseFullForUser(AOA_COURSE_CAPACITY, false), true);
+});
+
+test('uses the configured workshop capacities', () => {
+  assert.deepEqual(WORKSHOP_CAPACITIES, {
+    'labour-analgesia': 50,
+    'critical-incidents': 40,
+    pocus: 40,
+    'maternal-collapse': 40,
+  });
+});
+
+test('marks workshops full based on their individual capacity', () => {
+  assert.equal(isWorkshopFullForUser(49, 'labour-analgesia'), false);
+  assert.equal(isWorkshopFullForUser(50, 'labour-analgesia'), true);
+  assert.equal(isWorkshopFullForUser(40, 'pocus'), true);
+  assert.equal(isWorkshopFullForUser(40, 'pocus', true), false);
+});
+
+test('builds workshop availability details', () => {
+  assert.deepEqual(buildWorkshopAvailability('critical-incidents', 35), {
+    capacity: 40,
+    used: 35,
+    remaining: 5,
+    full: false,
+  });
 });
