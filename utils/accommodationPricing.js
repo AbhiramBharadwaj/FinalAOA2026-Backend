@@ -13,6 +13,50 @@ export const MANAGED_HOTEL = Object.freeze({
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
+const SHARING_WITH_VALUES = ['FAMILY', 'FACULTY', 'OTHER'];
+
+export const normalizeAccommodationUseCase = ({ occupancyType, sharingWith } = {}) => {
+  const normalizedOccupancy = String(occupancyType || '').trim().toUpperCase();
+  if (!['SINGLE', 'SHARING'].includes(normalizedOccupancy)) {
+    throw new Error('Select Single or Sharing occupancy.');
+  }
+
+  if (normalizedOccupancy === 'SINGLE') {
+    return {
+      occupancyType: 'SINGLE',
+      accommodationUseCase: 'SINGLE_OCCUPANCY',
+      sharingWith: undefined,
+      occupancyLabel: 'Single occupancy',
+    };
+  }
+
+  const normalizedSharingWith = String(sharingWith || 'OTHER').trim().toUpperCase();
+  if (!SHARING_WITH_VALUES.includes(normalizedSharingWith)) {
+    throw new Error('Select whether sharing is with family, faculty, or others.');
+  }
+
+  const labelBySharingWith = {
+    FAMILY: 'Sharing with family',
+    FACULTY: 'Sharing with other faculty',
+    OTHER: 'Sharing',
+  };
+
+  return {
+    occupancyType: 'SHARING',
+    accommodationUseCase: `SHARING_WITH_${normalizedSharingWith}`,
+    sharingWith: normalizedSharingWith,
+    occupancyLabel: labelBySharingWith[normalizedSharingWith],
+  };
+};
+
+export const getAccommodationOccupancyLabel = (booking = {}) => {
+  if (booking.accommodationUseCase === 'SINGLE_OCCUPANCY') return 'Single occupancy';
+  if (booking.accommodationUseCase === 'SHARING_WITH_FAMILY') return 'Sharing with family';
+  if (booking.accommodationUseCase === 'SHARING_WITH_FACULTY') return 'Sharing with other faculty';
+  if (booking.accommodationUseCase === 'SHARING_WITH_OTHER') return 'Sharing';
+  if (booking.occupancyType === 'SHARING') return 'Sharing';
+  return 'Single occupancy';
+};
 
 const parseDateOnly = (value) => {
   const normalized = String(value || '').trim();
@@ -37,10 +81,7 @@ export const calculateAccommodationQuote = ({
   earliestCheckIn = MANAGED_HOTEL.earliestCheckIn,
   latestCheckOut = MANAGED_HOTEL.latestCheckOut,
 }) => {
-  const normalizedOccupancy = String(occupancyType || '').trim().toUpperCase();
-  if (!['SINGLE', 'SHARING'].includes(normalizedOccupancy)) {
-    throw new Error('Select Single or Sharing occupancy.');
-  }
+  const useCase = normalizeAccommodationUseCase({ occupancyType });
 
   const checkIn = parseDateOnly(checkInDate);
   const checkOut = parseDateOnly(checkOutDate);
@@ -57,7 +98,7 @@ export const calculateAccommodationQuote = ({
   const numberOfNights = Math.round((checkOut - checkIn) / 86400000);
   if (numberOfNights < 1) throw new Error('Check-out must be after check-in.');
 
-  const baseRatePerNight = normalizedOccupancy === 'SINGLE'
+  const baseRatePerNight = useCase.occupancyType === 'SINGLE'
     ? Number(singleBaseRate)
     : Number(sharingBaseRate);
   const normalizedGstRate = Number(gstRate);
@@ -71,7 +112,7 @@ export const calculateAccommodationQuote = ({
   const baseAmount = baseRatePerNight * numberOfNights;
   const gstAmount = Math.round(baseAmount * normalizedGstRate / 100);
   return {
-    occupancyType: normalizedOccupancy,
+    occupancyType: useCase.occupancyType,
     numberOfNights,
     baseRatePerNight,
     gstRate: normalizedGstRate,

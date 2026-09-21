@@ -1,4 +1,5 @@
 import { jsPDF } from 'jspdf';
+import { getAccommodationOccupancyLabel } from './accommodationPricing.js';
 
 const formatAmount = (value) => {
   const amount = Number(value || 0);
@@ -195,7 +196,7 @@ export const buildAccommodationInvoicePdf = (booking, user) => {
     y
   );
   y += 6;
-  addLine(doc, 'Occupancy', booking.occupancyType === 'SHARING' ? 'Sharing' : 'Single', y);
+  addLine(doc, 'Occupancy', getAccommodationOccupancyLabel(booking), y);
   y += 6;
   if (booking.roommateName) {
     addLine(doc, 'Roommate', booking.roommateName, y);

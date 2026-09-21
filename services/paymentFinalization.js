@@ -9,6 +9,7 @@ import {
   buildRegistrationInvoicePdf,
   buildAccommodationInvoicePdf,
 } from '../utils/invoice.js';
+import { getAccommodationOccupancyLabel } from '../utils/accommodationPricing.js';
 import logger from '../utils/logger.js';
 import { activatePaidLifeMembership } from './membershipActivation.js';
 
@@ -233,7 +234,7 @@ export const deliverAccommodationConfirmation = async ({ bookingId }) => {
         `Booking No: ${booking.bookingNumber || 'N/A'}`,
         `Hotel: ${booking.accommodationId?.name || 'N/A'}`,
         `Stay: ${new Date(booking.checkInDate).toLocaleDateString('en-IN')} to ${new Date(booking.checkOutDate).toLocaleDateString('en-IN')}`,
-        `Occupancy: ${booking.occupancyType === 'SHARING' ? 'Sharing' : 'Single'}`,
+        `Occupancy: ${getAccommodationOccupancyLabel(booking)}`,
         `Amount Paid: INR ${Number(booking.amountCollected ?? booking.totalAmount ?? 0).toLocaleString('en-IN')}`,
         'Payment Status: PAID',
       ],

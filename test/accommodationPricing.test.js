@@ -1,6 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { calculateAccommodationQuote, validateAccommodationDateWindow } from '../utils/accommodationPricing.js';
+import {
+  calculateAccommodationQuote,
+  getAccommodationOccupancyLabel,
+  normalizeAccommodationUseCase,
+  validateAccommodationDateWindow,
+} from '../utils/accommodationPricing.js';
 
 test('calculates the Harsha single-occupancy tariff with five percent GST', () => {
   const quote = calculateAccommodationQuote({
@@ -31,6 +36,31 @@ test('calculates sharing as a per-person nightly tariff', () => {
   assert.equal(quote.baseAmount, 12000);
   assert.equal(quote.gstAmount, 600);
   assert.equal(quote.totalAmount, 12600);
+});
+
+test('normalizes single occupancy use case', () => {
+  assert.deepEqual(normalizeAccommodationUseCase({ occupancyType: 'SINGLE' }), {
+    occupancyType: 'SINGLE',
+    accommodationUseCase: 'SINGLE_OCCUPANCY',
+    sharingWith: undefined,
+    occupancyLabel: 'Single occupancy',
+  });
+});
+
+test('normalizes sharing with family use case', () => {
+  assert.deepEqual(normalizeAccommodationUseCase({ occupancyType: 'SHARING', sharingWith: 'family' }), {
+    occupancyType: 'SHARING',
+    accommodationUseCase: 'SHARING_WITH_FAMILY',
+    sharingWith: 'FAMILY',
+    occupancyLabel: 'Sharing with family',
+  });
+});
+
+test('normalizes sharing with other faculty use case', () => {
+  const useCase = normalizeAccommodationUseCase({ occupancyType: 'SHARING', sharingWith: 'FACULTY' });
+
+  assert.equal(useCase.accommodationUseCase, 'SHARING_WITH_FACULTY');
+  assert.equal(getAccommodationOccupancyLabel(useCase), 'Sharing with other faculty');
 });
 
 test('accepts the full approved accommodation date window', () => {

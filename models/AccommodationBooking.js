@@ -39,6 +39,14 @@ const accommodationBookingSchema = new mongoose.Schema({
     type: String,
     enum: ['SINGLE', 'SHARING']
   },
+  accommodationUseCase: {
+    type: String,
+    enum: ['SINGLE_OCCUPANCY', 'SHARING_WITH_FAMILY', 'SHARING_WITH_FACULTY', 'SHARING_WITH_OTHER']
+  },
+  sharingWith: {
+    type: String,
+    enum: ['FAMILY', 'FACULTY', 'OTHER']
+  },
   roommateName: {
     type: String,
     trim: true

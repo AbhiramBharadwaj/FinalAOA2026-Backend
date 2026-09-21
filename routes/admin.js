@@ -31,6 +31,7 @@ import { deliverAccommodationConfirmation } from '../services/paymentFinalizatio
 import {
   MANAGED_HOTEL,
   calculateAccommodationQuote,
+  normalizeAccommodationUseCase,
   toIndiaDateTime,
   validateAccommodationDateWindow,
   validateAccommodationTime,
@@ -1735,6 +1736,13 @@ router.post('/accommodation-bookings/quote', authenticateAdmin, async (req, res)
       gstRate: rates.gstRate ?? MANAGED_HOTEL.gstRate,
       ...dateWindow,
     });
+    const useCase = normalizeAccommodationUseCase({
+      occupancyType: quote.occupancyType,
+      sharingWith: req.body.sharingWith,
+    });
+    quote.accommodationUseCase = useCase.accommodationUseCase;
+    quote.sharingWith = useCase.sharingWith;
+    quote.occupancyLabel = useCase.occupancyLabel;
     return res.json({ quote, accommodation, dateWindow });
   } catch (error) {
     return res.status(400).json({ message: error?.message || 'Accommodation quote could not be calculated.' });
@@ -1747,6 +1755,7 @@ router.post('/accommodation-bookings/manual', authenticateAdmin, async (req, res
       userId,
       accommodationId,
       occupancyType,
+      sharingWith,
       roommateName,
       checkInDate,
       checkOutDate,
@@ -1801,6 +1810,7 @@ router.post('/accommodation-bookings/manual', authenticateAdmin, async (req, res
       gstRate: rates.gstRate ?? MANAGED_HOTEL.gstRate,
       ...dateWindow,
     });
+    const useCase = normalizeAccommodationUseCase({ occupancyType: quote.occupancyType, sharingWith });
     const collected = Number(amountCollected);
     if (!Number.isFinite(collected) || collected < 0) {
       return res.status(400).json({ message: 'Enter a valid amount collected.' });
@@ -1841,6 +1851,8 @@ router.post('/accommodation-bookings/manual', authenticateAdmin, async (req, res
           numberOfGuests: 1,
           roomsBooked: 1,
           occupancyType: quote.occupancyType,
+          accommodationUseCase: useCase.accommodationUseCase,
+          sharingWith: useCase.sharingWith,
           roommateName: quote.occupancyType === 'SHARING' ? String(roommateName || '').trim() : undefined,
           baseRatePerNight: quote.baseRatePerNight,
           gstRate: quote.gstRate,
