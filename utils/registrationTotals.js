@@ -1,6 +1,6 @@
 import { calculateRegistrationTotals } from './pricing.js';
 
-export const AOA_COURSE_CAPACITY = 58;
+export const AOA_COURSE_CAPACITY = 59;
 export const WORKSHOP_CAPACITIES = {
   'labour-analgesia': 50,
   'critical-incidents': 40,
