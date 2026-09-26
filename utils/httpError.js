@@ -22,6 +22,7 @@ const getDuplicateMessage = (error) => {
   if (field === 'email') return 'This email is already registered. Please sign in or use another email.';
   if (field === 'phone') return 'This phone number is already registered. Please sign in or use another number.';
   if (field === 'membershipId') return 'This AOA Membership ID is already registered. Please check the ID or sign in.';
+  if (field === 'submissionNumber') return 'Submission number could not be generated. Please try submitting again.';
   return `${fieldLabel(field)} is already in use. Please enter a different value.`;
 };
 

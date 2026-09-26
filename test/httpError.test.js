@@ -28,6 +28,18 @@ test('returns a useful duplicate membership ID message', () => {
   });
 });
 
+test('does not ask users to edit generated submission numbers', () => {
+  const response = getSafeErrorResponse({
+    code: 11000,
+    keyPattern: { submissionNumber: 1 },
+  });
+
+  assert.deepEqual(response, {
+    status: 400,
+    message: 'Submission number could not be generated. Please try submitting again.',
+  });
+});
+
 test('does not expose unexpected internal error details', () => {
   const response = getSafeErrorResponse(
     new Error('mongodb://username:password@example.invalid'),
