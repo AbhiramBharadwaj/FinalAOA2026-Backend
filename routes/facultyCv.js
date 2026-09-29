@@ -15,6 +15,8 @@ const router = express.Router();
 const MAX_CV_SIZE = 25 * 1024 * 1024;
 const OTP_TTL_MS = 10 * 60 * 1000;
 const UPLOAD_TOKEN_TTL_MS = 30 * 60 * 1000;
+const FACULTY_BIO_TEMPLATE_URL =
+  'https://pub-19119a4745b448f8af2bd6306c0e7f89.r2.dev/templates/Faculty-Bio-Template-AOACON-2026.pptx';
 const allowedExtensions = new Set(['.pdf', '.doc', '.docx', '.ppt', '.pptx']);
 const allowedMimeTypes = new Set([
   'application/pdf',
@@ -103,6 +105,10 @@ const handleCvUpload = (req, res, next) => {
     return res.status(400).json({ message: error.message || 'Invalid CV file upload' });
   });
 };
+
+router.get('/template', (req, res) => {
+  res.redirect(302, FACULTY_BIO_TEMPLATE_URL);
+});
 
 router.post('/request-otp', facultyCvOtpLimiter, async (req, res) => {
   try {
