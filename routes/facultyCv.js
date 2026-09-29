@@ -4,6 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import FacultyCv from '../models/FacultyCv.js';
+import Registration from '../models/Registration.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { facultyCvOtpLimiter } from '../middleware/rateLimits.js';
 import { sendFacultyCvOtpEmail } from '../utils/email.js';
@@ -45,6 +46,17 @@ const normalizeEmail = (email) => String(email || '').trim().toLowerCase();
 const hashValue = (value) => crypto.createHash('sha256').update(String(value)).digest('hex');
 const generateOtp = () => String(crypto.randomInt(100000, 1000000));
 const generateUploadToken = () => crypto.randomBytes(32).toString('hex');
+
+const maskEmail = (email) => {
+  const [localPart = '', domain = ''] = String(email || '').split('@');
+  if (!localPart || !domain) return '';
+
+  const visibleStart = localPart.slice(0, 1);
+  const visibleEnd = localPart.length > 2 ? localPart.slice(-1) : '';
+  return `${visibleStart}${'*'.repeat(Math.max(3, Math.min(localPart.length - 1, 6)))}${visibleEnd}@${domain}`;
+};
+
+const normalizeRegistrationLast4 = (value) => String(value || '').replace(/\D/g, '').slice(-4);
 
 const sanitizeFileName = (fileName) =>
   String(fileName || 'faculty-cv')
@@ -144,6 +156,43 @@ router.post('/request-otp', facultyCvOtpLimiter, async (req, res) => {
   } catch (error) {
     logger.error('faculty_cv.otp_request.error', { message: error?.message || error });
     return sendErrorResponse(res, error, 'OTP could not be sent. Please try again.');
+  }
+});
+
+
+router.post('/recover-email', facultyCvOtpLimiter, async (req, res) => {
+  try {
+    const registrationLast4 = normalizeRegistrationLast4(req.body.registrationLast4);
+    if (registrationLast4.length !== 4) {
+      return res.status(400).json({ message: 'Please enter the last 4 digits of your Registration ID' });
+    }
+
+    const registration = await Registration.findOne({
+      registrationNumber: `AOA2026-${registrationLast4}`,
+    }).populate('userId', 'email');
+
+    const email = normalizeEmail(registration?.userId?.email);
+    const faculty = email
+      ? await FacultyCv.findOne({ email, isActive: true }).select('name email role').lean()
+      : null;
+
+    if (!faculty) {
+      return res.status(404).json({
+        message: 'We could not verify a faculty CV upload email for this Registration ID. Please contact the organizing team.',
+      });
+    }
+
+    return res.json({
+      message: 'Faculty CV upload email found',
+      faculty: {
+        name: faculty.name,
+        maskedEmail: maskEmail(faculty.email),
+        role: faculty.role,
+      },
+    });
+  } catch (error) {
+    logger.error('faculty_cv.email_recovery.error', { message: error?.message || error });
+    return sendErrorResponse(res, error, 'Email lookup could not be completed. Please try again.');
   }
 });
 
