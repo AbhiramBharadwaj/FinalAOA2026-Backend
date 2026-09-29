@@ -6,7 +6,7 @@ import { GetObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3
 import FacultyCv from '../models/FacultyCv.js';
 import Registration from '../models/Registration.js';
 import { authenticateAdmin } from '../middleware/auth.js';
-import { facultyCvOtpLimiter } from '../middleware/rateLimits.js';
+import { facultyCvOtpLimiter, facultyCvRecoveryLimiter } from '../middleware/rateLimits.js';
 import { sendFacultyCvOtpEmail } from '../utils/email.js';
 import { sendErrorResponse } from '../utils/httpError.js';
 import logger from '../utils/logger.js';
@@ -160,7 +160,7 @@ router.post('/request-otp', facultyCvOtpLimiter, async (req, res) => {
 });
 
 
-router.post('/recover-email', facultyCvOtpLimiter, async (req, res) => {
+router.post('/recover-email', facultyCvRecoveryLimiter, async (req, res) => {
   try {
     const registrationLast4 = normalizeRegistrationLast4(req.body.registrationLast4);
     if (registrationLast4.length !== 4) {

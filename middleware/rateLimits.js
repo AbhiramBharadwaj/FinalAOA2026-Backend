@@ -32,8 +32,15 @@ export const passwordResetLimiter = buildLimiter({
 
 export const facultyCvOtpLimiter = buildLimiter({
   windowMs: 15 * 60 * 1000,
-  limit: 5,
+  limit: 10,
+  skipSuccessfulRequests: true,
   message: 'Too many OTP requests. Please wait before trying again.',
+});
+
+export const facultyCvRecoveryLimiter = buildLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 20,
+  message: 'Too many lookup attempts. Please wait before trying again.',
 });
 
 export const accountRegistrationLimiter = buildLimiter({
