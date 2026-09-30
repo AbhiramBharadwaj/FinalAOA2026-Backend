@@ -56,6 +56,38 @@ const countWorkshopSeats = (selectedWorkshop) =>
   });
 
 const escapeRegex = (value) => String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const normalizeDigits = (value) => String(value || '').replace(/\D/g, '');
+
+const registrationMatchesSearch = (registration, search) => {
+  const term = String(search || '').trim();
+  if (!term) return true;
+
+  const regex = new RegExp(escapeRegex(term), 'i');
+  const user = registration.userId || {};
+  const textFields = [
+    registration.registrationNumber,
+    registration.razorpayPaymentId,
+    registration.razorpayOrderId,
+    registration.lifetimeMembershipId,
+    user.name,
+    user.email,
+    user.phone,
+    user.membershipId,
+    user.instituteHospital,
+    user.medicalCouncilNumber,
+  ];
+
+  if (textFields.some((value) => value && regex.test(String(value)))) {
+    return true;
+  }
+
+  const searchDigits = normalizeDigits(term);
+  if (!searchDigits) return false;
+
+  return [user.phone, registration.registrationNumber]
+    .map(normalizeDigits)
+    .some((value) => value.includes(searchDigits));
+};
 
 const getManagedAccommodation = async ({ create = false } = {}) => {
   let accommodation = await Accommodation.findOne({ name: /Harsha The Fern/i });
@@ -1115,7 +1147,7 @@ router.get('/export-not-attended', authenticateAdmin, async (req, res) => {
 // Rest of your existing routes remain the same...
 router.get('/registrations', authenticateAdmin, async (req, res) => {
   try {
-    const { status, role, phase } = req.query;
+    const { status, role, phase, search } = req.query;
     let filter = {};
 
     if (status) filter.paymentStatus = status;
@@ -1130,7 +1162,10 @@ router.get('/registrations', authenticateAdmin, async (req, res) => {
 
     let filteredRegistrations = registrations;
     if (role) {
-      filteredRegistrations = registrations.filter(reg => reg.userId.role === role);
+      filteredRegistrations = filteredRegistrations.filter(reg => reg.userId?.role === role);
+    }
+    if (search) {
+      filteredRegistrations = filteredRegistrations.filter(reg => registrationMatchesSearch(reg, search));
     }
 
     res.json(filteredRegistrations);
@@ -1374,7 +1409,7 @@ router.get('/payments', authenticateAdmin, async (req, res) => {
 
 router.get('/registrations', authenticateAdmin, async (req, res) => {
   try {
-    const { status, role, phase } = req.query;
+    const { status, role, phase, search } = req.query;
     let filter = {};
 
     if (status) filter.paymentStatus = status;
@@ -1390,7 +1425,10 @@ router.get('/registrations', authenticateAdmin, async (req, res) => {
     
     let filteredRegistrations = registrations;
     if (role) {
-      filteredRegistrations = registrations.filter(reg => reg.userId.role === role);
+      filteredRegistrations = filteredRegistrations.filter(reg => reg.userId?.role === role);
+    }
+    if (search) {
+      filteredRegistrations = filteredRegistrations.filter(reg => registrationMatchesSearch(reg, search));
     }
 
     res.json(filteredRegistrations);
