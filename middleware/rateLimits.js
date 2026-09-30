@@ -1,5 +1,10 @@
 import { rateLimit } from 'express-rate-limit';
 
+const positiveIntegerFromEnv = (name, fallback) => {
+  const value = Number.parseInt(process.env[name], 10);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+};
+
 const buildLimiter = ({ windowMs, limit, message, skipSuccessfulRequests = false }) =>
   rateLimit({
     windowMs,
@@ -44,7 +49,7 @@ export const facultyCvRecoveryLimiter = buildLimiter({
 });
 
 export const accountRegistrationLimiter = buildLimiter({
-  windowMs: 60 * 60 * 1000,
-  limit: 5,
+  windowMs: positiveIntegerFromEnv('ACCOUNT_REGISTRATION_RATE_LIMIT_WINDOW_MS', 15 * 60 * 1000),
+  limit: positiveIntegerFromEnv('ACCOUNT_REGISTRATION_RATE_LIMIT', 500),
   message: 'Too many account-registration attempts. Please wait before trying again.',
 });
