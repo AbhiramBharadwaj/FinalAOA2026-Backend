@@ -582,6 +582,9 @@ router.post('/manual-registrations/quote', authenticateAdmin, async (req, res) =
     if (!totals) {
       return res.status(400).json({ message: 'Pricing is not available for this selection.' });
     }
+    if (wantsLifeMembership && totals.lifeMembershipBase <= 0) {
+      return res.status(400).json({ message: 'AOA Life Membership is not available.' });
+    }
 
     if (normalizeCouponCode(couponCode) && !totals.couponCode) {
       return res.status(400).json({ message: 'Invalid coupon code.' });
@@ -800,6 +803,9 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
 
     if (!totals) {
       return res.status(400).json({ message: 'Pricing is not available for this selection.' });
+    }
+    if (wantsLifeMembership && totals.lifeMembershipBase <= 0) {
+      return res.status(400).json({ message: 'AOA Life Membership is not available.' });
     }
     if (normalizeCouponCode(couponCode) && !totals.couponCode) {
       return res.status(400).json({ message: 'Invalid coupon code.' });

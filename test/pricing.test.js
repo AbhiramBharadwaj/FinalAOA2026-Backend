@@ -14,24 +14,27 @@ test('spot pricing starts on October 16, 2026', () => {
   assert.equal(getBookingPhase(new Date(2026, 9, 16)), 'SPOT');
 });
 
-test('non-AOA combo offer remains available through October 15, 2026', () => {
+test('early-bird pricing remains unchanged after combo offer is closed', () => {
   const totals = calculateRegistrationTotals('NON_AOA', 'EARLY_BIRD', {
     addLifeMembership: true,
   });
 
   assert.equal(totals.basePrice, 11000);
-  assert.equal(totals.lifeMembershipAddOn, 3000);
-  assert.equal(totals.packageBase, 14000);
+  assert.equal(totals.lifeMembershipAddOn, 0);
+  assert.equal(totals.packageBase, 11000);
 });
 
-test('non-AOA combo offer is closed from October 16, 2026', () => {
-  const addOnPricing = getAddOnPricing('NON_AOA', 'SPOT');
-  const totals = calculateRegistrationTotals('NON_AOA', 'SPOT', {
-    addLifeMembership: true,
-  });
+test('combo offer is closed for every role and phase', () => {
+  for (const role of ['AOA', 'NON_AOA', 'PGS']) {
+    for (const phase of ['EARLY_BIRD', 'REGULAR', 'SPOT']) {
+      const addOnPricing = getAddOnPricing(role, phase);
+      const totals = calculateRegistrationTotals(role, phase, {
+        addLifeMembership: true,
+      });
 
-  assert.equal(addOnPricing.lifeMembership.priceWithoutGST, 0);
-  assert.equal(totals.basePrice, 16000);
-  assert.equal(totals.lifeMembershipAddOn, 0);
-  assert.equal(totals.packageBase, 16000);
+      assert.equal(addOnPricing.lifeMembership.priceWithoutGST, 0);
+      assert.equal(totals.lifeMembershipAddOn, 0);
+      assert.equal(totals.packageBase, totals.basePrice);
+    }
+  }
 });

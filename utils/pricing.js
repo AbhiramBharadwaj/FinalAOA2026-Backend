@@ -99,7 +99,7 @@ const getComboPrice = (userRole, bookingPhase) => {
       SPOT: 0,
     },
     NON_AOA: {
-      EARLY_BIRD: 14000,
+      EARLY_BIRD: 0,
       REGULAR: 0,
       SPOT: 0,
     },
