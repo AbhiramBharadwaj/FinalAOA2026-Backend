@@ -369,6 +369,7 @@ router.post('/scan/mark', authenticateAdmin, async (req, res) => {
     });
     res.json({
       message: 'Entry marked successfully',
+      attendanceId: attendance._id,
       totalScans: attendance.totalScans,
       remainingScans: Math.max(0, MAX_ENTRY_SCANS - attendance.totalScans),
       registration: attendance.registrationId,
@@ -383,6 +384,65 @@ router.post('/scan/mark', authenticateAdmin, async (req, res) => {
       message: error?.message || error,
     });
     return sendErrorResponse(res, error, 'Attendance could not be marked. Please scan the QR code again.');
+  }
+});
+
+router.post('/scan/revert', authenticateAdmin, async (req, res) => {
+  try {
+    const { qrCode } = req.body;
+    const normalizedQrCode = qrCode?.trim();
+
+    if (!normalizedQrCode) {
+      return res.status(400).json({ message: 'QR code required' });
+    }
+
+    logger.info('attendance.scan_revert.start', { requestId: req.requestId, adminId: req.admin?._id });
+    const attendance = await Attendance.findOneAndUpdate(
+      {
+        qrCodeData: normalizedQrCode,
+        isActive: true,
+        totalScans: { $gt: 0 },
+      },
+      {
+        $set: { totalScans: 0, scanHistory: [] },
+      },
+      { new: true }
+    ).populate({
+      path: 'registrationId',
+      populate: {
+        path: 'userId',
+        select: 'name email phone role membershipId',
+      },
+    });
+
+    if (!attendance) {
+      return res.status(409).json({
+        code: 'NO_SCAN_TO_REVERT',
+        message: 'There is no marked entry to undo for this QR',
+      });
+    }
+
+    logger.info('attendance.scan_revert.success', {
+      requestId: req.requestId,
+      attendanceId: attendance._id,
+    });
+    res.json({
+      message: 'Entry scan undone',
+      attendanceId: attendance._id,
+      registration: attendance.registrationId,
+      totalScans: attendance.totalScans,
+      remainingScans: MAX_ENTRY_SCANS,
+      scanHistory: attendance.scanHistory,
+      maxScans: MAX_ENTRY_SCANS,
+      ...getScanSummary(attendance),
+    });
+  } catch (error) {
+    logger.error('attendance.scan_revert.error', {
+      requestId: req.requestId,
+      adminId: req.admin?._id,
+      message: error?.message || error,
+    });
+    return sendErrorResponse(res, error, 'Attendance scan could not be undone. Please try again.');
   }
 });
 
