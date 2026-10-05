@@ -23,6 +23,10 @@ import {
   isWorkshopFullForUser,
   normalizeCouponCode,
 } from '../utils/registrationTotals.js';
+import {
+  buildAdminRegistrationFilter,
+  normalizeAttendeeRoleFilter,
+} from '../utils/adminRegistrationFilters.js';
 import { razorpay } from '../services/razorpayClient.js';
 import { validateAttendeeName } from '../utils/profileValidation.js';
 import logger from '../utils/logger.js';
@@ -1153,11 +1157,9 @@ router.get('/export-not-attended', authenticateAdmin, async (req, res) => {
 // Rest of your existing routes remain the same...
 router.get('/registrations', authenticateAdmin, async (req, res) => {
   try {
-    const { status, role, phase, search } = req.query;
-    let filter = {};
-
-    if (status) filter.paymentStatus = status;
-    if (phase) filter.bookingPhase = phase;
+    const { search } = req.query;
+    const filter = buildAdminRegistrationFilter(req.query);
+    const role = normalizeAttendeeRoleFilter(req.query);
 
     const registrations = await Registration.find(filter)
       .populate(
@@ -1415,11 +1417,9 @@ router.get('/payments', authenticateAdmin, async (req, res) => {
 
 router.get('/registrations', authenticateAdmin, async (req, res) => {
   try {
-    const { status, role, phase, search } = req.query;
-    let filter = {};
-
-    if (status) filter.paymentStatus = status;
-    if (phase) filter.bookingPhase = phase;
+    const { search } = req.query;
+    const filter = buildAdminRegistrationFilter(req.query);
+    const role = normalizeAttendeeRoleFilter(req.query);
 
     const registrations = await Registration.find(filter)
       .populate(
