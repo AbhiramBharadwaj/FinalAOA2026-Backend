@@ -8,6 +8,19 @@ import logger from '../utils/logger.js';
 import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
+const MAX_ENTRY_SCANS = 1;
+
+const getScanSummary = (attendance) => {
+  const scanHistory = attendance?.scanHistory || [];
+  const firstScan = scanHistory[0];
+  const lastScan = scanHistory[scanHistory.length - 1];
+
+  return {
+    alreadyScanned: (attendance?.totalScans || 0) >= MAX_ENTRY_SCANS,
+    firstScannedAt: firstScan?.scannedAt || null,
+    lastScannedAt: lastScan?.scannedAt || null,
+  };
+};
 
 
 router.get('/my-qr', authenticateUser, async (req, res) => {
@@ -232,7 +245,8 @@ router.post('/scan/check', authenticateAdmin, async (req, res) => {
       registration: attendance.registrationId,
       totalScans: attendance.totalScans,
       scanHistory: attendance.scanHistory,
-      maxScans: 10, 
+      maxScans: MAX_ENTRY_SCANS,
+      ...getScanSummary(attendance),
     });
   } catch (error) {
     logger.error('attendance.scan_check.error', {
@@ -248,30 +262,103 @@ router.post('/scan/check', authenticateAdmin, async (req, res) => {
 router.post('/scan/mark', authenticateAdmin, async (req, res) => {
   try {
     const { qrCode, count = 1, location = 'Main Gate', notes = '' } = req.body;
+    const normalizedQrCode = qrCode?.trim();
+    const scanCount = Number.parseInt(count, 10);
+
+    if (!normalizedQrCode) {
+      return res.status(400).json({ message: 'QR code required' });
+    }
+
+    if (!Number.isInteger(scanCount) || scanCount !== 1) {
+      return res.status(400).json({ message: 'Only one entry can be marked per scan' });
+    }
     
     logger.info('attendance.scan_mark.start', { requestId: req.requestId, adminId: req.admin?._id });
-    const attendance = await Attendance.findOne({ 
-      qrCodeData: qrCode.trim(),
+    const existingAttendance = await Attendance.findOne({
+      qrCodeData: normalizedQrCode,
       isActive: true 
+    }).populate({
+      path: 'registrationId',
+      populate: {
+        path: 'userId',
+        select: 'name email phone role membershipId',
+      },
     });
 
-    if (!attendance) {
+    if (!existingAttendance) {
       return res.status(404).json({ message: 'Invalid QR Code' });
     }
 
-    
-    attendance.scanHistory.push({
-      scannedAt: new Date(),
-      scannedBy: req.admin._id,
-      location,
-      notes,
-      count: parseInt(count),
-    });
-    attendance.totalScans += parseInt(count);
-    await attendance.save();
+    if (existingAttendance.registrationId?.paymentStatus !== 'PAID') {
+      return res.status(400).json({
+        message: 'Payment Pending',
+        reason: 'Registration payment not completed',
+      });
+    }
+
+    if (existingAttendance.totalScans >= MAX_ENTRY_SCANS) {
+      return res.status(409).json({
+        code: 'ALREADY_CHECKED_IN',
+        message: 'This attendee is already checked in',
+        registration: existingAttendance.registrationId,
+        totalScans: existingAttendance.totalScans,
+        remainingScans: 0,
+        scanHistory: existingAttendance.scanHistory,
+        maxScans: MAX_ENTRY_SCANS,
+        ...getScanSummary(existingAttendance),
+      });
+    }
+
+    const attendance = await Attendance.findOneAndUpdate(
+      {
+        _id: existingAttendance._id,
+        isActive: true,
+        totalScans: { $lt: MAX_ENTRY_SCANS },
+      },
+      {
+        $push: {
+          scanHistory: {
+            scannedAt: new Date(),
+            scannedBy: req.admin._id,
+            location,
+            notes,
+            count: scanCount,
+          },
+        },
+        $inc: { totalScans: scanCount },
+      },
+      { new: true }
+    );
+
+    if (!attendance) {
+      const latestAttendance = await Attendance.findById(existingAttendance._id).populate({
+        path: 'registrationId',
+        populate: {
+          path: 'userId',
+          select: 'name email phone role membershipId',
+        },
+      });
+
+      return res.status(409).json({
+        code: 'ALREADY_CHECKED_IN',
+        message: 'This attendee is already checked in',
+        registration: latestAttendance.registrationId,
+        totalScans: latestAttendance.totalScans,
+        remainingScans: 0,
+        scanHistory: latestAttendance.scanHistory,
+        maxScans: MAX_ENTRY_SCANS,
+        ...getScanSummary(latestAttendance),
+      });
+    }
 
     await attendance.populate([
-      { path: 'registrationId', select: 'userId registrationNumber registrationType' },
+      {
+        path: 'registrationId',
+        populate: {
+          path: 'userId',
+          select: 'name email phone role membershipId',
+        },
+      },
       { path: 'scanHistory.scannedBy', select: 'name email' }
     ]);
 
@@ -281,11 +368,13 @@ router.post('/scan/mark', authenticateAdmin, async (req, res) => {
       totalScans: attendance.totalScans,
     });
     res.json({
-      message: `${count} entry(s) marked successfully`,
+      message: 'Entry marked successfully',
       totalScans: attendance.totalScans,
-      remainingScans: 10 - attendance.totalScans, 
+      remainingScans: Math.max(0, MAX_ENTRY_SCANS - attendance.totalScans),
       registration: attendance.registrationId,
       scanHistory: attendance.scanHistory,
+      maxScans: MAX_ENTRY_SCANS,
+      ...getScanSummary(attendance),
     });
   } catch (error) {
     logger.error('attendance.scan_mark.error', {
