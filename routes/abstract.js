@@ -17,6 +17,18 @@ import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
+const ABSTRACT_SUBMISSION_DEADLINE = new Date('2026-10-15T18:29:59.999Z');
+const FINAL_POSTER_SUBMISSION_DEADLINE = new Date('2026-10-18T18:29:59.999Z');
+
+const isAfterDeadline = (deadline) => Date.now() > deadline.getTime();
+
+const requireSubmissionWindowOpen = (deadline, message) => (req, res, next) => {
+  if (isAfterDeadline(deadline)) {
+    return res.status(403).json({ message });
+  }
+
+  return next();
+};
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
@@ -170,8 +182,17 @@ const requireApprovedAbstractForPoster = async (req, res, next) => {
   }
 };
 
-router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractUpload, async (req, res) => {
-  try {
+router.post(
+  '/submit',
+  authenticateUser,
+  requireProfileComplete,
+  requireSubmissionWindowOpen(
+    ABSTRACT_SUBMISSION_DEADLINE,
+    'Abstract submission is closed. The last date for abstract submission was 15th October 2026.'
+  ),
+  handleAbstractUpload,
+  async (req, res) => {
+    try {
     logger.info(`${req.actorName || 'User'} is submitting an abstract.`);
     const { title, authors, category } = req.body;
 
@@ -314,7 +335,7 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractU
     } catch (emailError) {
       logger.warn('Abstract email failed to send.', { message: emailError?.message || emailError });
     }
-  } catch (error) {
+    } catch (error) {
     console.error('[abstract.submit] Submission failed', {
       name: error?.name,
       message: error?.message,
@@ -334,11 +355,22 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleAbstractU
     }
 
     return sendErrorResponse(res, error, 'Abstract could not be submitted. Please try again.');
+    }
   }
-});
+);
 
-router.post('/final-poster', authenticateUser, requireProfileComplete, requireApprovedAbstractForPoster, handleFinalPosterUpload, async (req, res) => {
-  try {
+router.post(
+  '/final-poster',
+  authenticateUser,
+  requireProfileComplete,
+  requireSubmissionWindowOpen(
+    FINAL_POSTER_SUBMISSION_DEADLINE,
+    'Final e-poster upload is closed. The last date for e-poster submission was 18th October 2026.'
+  ),
+  requireApprovedAbstractForPoster,
+  handleFinalPosterUpload,
+  async (req, res) => {
+    try {
     logger.info(`${req.actorName || 'User'} is uploading a final e-poster.`);
 
     if (!req.file) {
@@ -372,15 +404,16 @@ router.post('/final-poster', authenticateUser, requireProfileComplete, requireAp
     } catch (emailError) {
       logger.warn('Final e-poster upload email failed to send.', { message: emailError?.message || emailError });
     }
-  } catch (error) {
+    } catch (error) {
     logger.error('Final e-poster upload failed.', {
       requestId: req.requestId,
       userId: req.user?._id,
       message: error?.message || error,
     });
     return sendErrorResponse(res, error, 'Final e-poster could not be uploaded. Please try again.');
+    }
   }
-});
+);
 
 
 router.get('/my-abstract', authenticateUser, async (req, res) => {
