@@ -4,7 +4,7 @@ export const AOA_COURSE_CAPACITY = 60;
 export const WORKSHOP_CAPACITIES = {
   'labour-analgesia': 50,
   'critical-incidents': 40,
-  pocus: 40,
+  pocus: 41,
   'maternal-collapse': 40,
 };
 export const COUPON_ENABLED = true;
