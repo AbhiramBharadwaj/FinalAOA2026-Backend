@@ -406,6 +406,107 @@ export const sendAbstractReviewEmail = async (abstract) => {
   });
 };
 
+export const sendVideoSubmittedEmail = async (submission) => {
+  const user = submission.userId;
+  const subject = 'AOACON 2026 Award Video Submitted';
+  const text = [
+    `Hello ${user.name},`,
+    '',
+    'Your award video has been submitted for review.',
+    `Submission No: ${submission.submissionNumber || 'N/A'}`,
+    `Title: ${submission.title || 'N/A'}`,
+    `Presenter: ${submission.presenterName || 'N/A'}`,
+    '',
+    'You can track status from your dashboard.',
+    '',
+    'Thanks,',
+    'AOACON 2026 Team',
+  ].join('\n');
+
+  const bodyHtml = `
+    <p style="margin:0 0 10px;">Hello ${user.name},</p>
+    <p style="margin:0 0 12px;">Your award video has been submitted for review.</p>
+    <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin:0 0 12px;">
+      <div style="margin:0 0 6px;"><strong>Submission No:</strong> ${submission.submissionNumber || 'N/A'}</div>
+      <div style="margin:0 0 6px;"><strong>Title:</strong> ${submission.title || 'N/A'}</div>
+      <div style="margin:0;"><strong>Presenter:</strong> ${submission.presenterName || 'N/A'}</div>
+    </div>
+    <p style="margin:0;">You can track status from your dashboard.</p>
+  `;
+
+  const html = wrapEmail('Award Video Submitted', bodyHtml);
+
+  return sendEmail({
+    to: user.email,
+    subject,
+    text,
+    html,
+  });
+};
+
+export const sendVideoReviewEmail = async (submission) => {
+  const user = submission.userId;
+  const status = submission.status;
+  const statusConfig = {
+    APPROVED: {
+      label: 'Approved',
+      message: 'Congratulations. Your award video has been approved for AOACON 2026.',
+    },
+    REJECTED: {
+      label: 'Rejected',
+      message: 'Your award video has been rejected. You may resubmit from your dashboard after making the required changes.',
+    },
+  }[status];
+
+  if (!statusConfig) {
+    throw new Error(`Unsupported video review status: ${status}`);
+  }
+
+  const { label: statusLabel, message: statusMessage } = statusConfig;
+  const subject = `AOACON 2026 Award Video ${statusLabel}`;
+  const text = [
+    `Hello ${user.name},`,
+    '',
+    statusMessage,
+    `Submission No: ${submission.submissionNumber || 'N/A'}`,
+    `Title: ${submission.title || 'N/A'}`,
+    `Presenter: ${submission.presenterName || 'N/A'}`,
+    submission.reviewComments ? `Comments: ${submission.reviewComments}` : null,
+    '',
+    'You can view your award video status in the dashboard.',
+    '',
+    'Thanks,',
+    'AOACON 2026 Team',
+  ]
+    .filter(Boolean)
+    .join('\n');
+
+  const commentsHtml = submission.reviewComments
+    ? `<div style="margin-top:10px;"><strong>Comments:</strong> ${submission.reviewComments}</div>`
+    : '';
+
+  const bodyHtml = `
+    <p style="margin:0 0 10px;">Hello ${user.name},</p>
+    <p style="margin:0 0 12px;">${statusMessage}</p>
+    <div style="background:#f8fafc;border:1px solid #e5e7eb;border-radius:8px;padding:12px 14px;margin:0 0 12px;">
+      <div style="margin:0 0 6px;"><strong>Submission No:</strong> ${submission.submissionNumber || 'N/A'}</div>
+      <div style="margin:0 0 6px;"><strong>Title:</strong> ${submission.title || 'N/A'}</div>
+      <div style="margin:0;"><strong>Presenter:</strong> ${submission.presenterName || 'N/A'}</div>
+      ${commentsHtml}
+    </div>
+    <p style="margin:0;">You can view your award video status in the dashboard.</p>
+  `;
+
+  const html = wrapEmail(`Award Video ${statusLabel}`, bodyHtml);
+
+  return sendEmail({
+    to: user.email,
+    subject,
+    text,
+    html,
+  });
+};
+
 export const sendFinalPosterUploadedEmail = async (abstract) => {
   const user = abstract.userId;
   const subject = 'AOACON 2026 Final E-Poster Uploaded';

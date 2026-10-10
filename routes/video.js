@@ -8,6 +8,7 @@ import Registration from '../models/Registration.js';
 import { authenticateUser, authenticateAdmin, requireProfileComplete } from '../middleware/auth.js';
 import logger from '../utils/logger.js';
 import { sendErrorResponse } from '../utils/httpError.js';
+import { sendVideoReviewEmail, sendVideoSubmittedEmail } from '../utils/email.js';
 
 const router = express.Router();
 const MAX_VIDEO_FILE_SIZE_BYTES = 500 * 1024 * 1024;
@@ -252,6 +253,31 @@ const assertUploadedObjectExists = async ({ objectKey, fileType }) => {
   return null;
 };
 
+const sendVideoSubmittedEmailSafely = async (submission) => {
+  try {
+    await sendVideoSubmittedEmail(submission);
+  } catch (emailError) {
+    logger.warn('video.submitted_email_failed', {
+      submissionId: submission?._id,
+      userId: submission?.userId?._id,
+      message: emailError?.message || emailError,
+    });
+  }
+};
+
+const sendVideoReviewEmailSafely = async (submission) => {
+  try {
+    await sendVideoReviewEmail(submission);
+  } catch (emailError) {
+    logger.warn('video.review_email_failed', {
+      submissionId: submission?._id,
+      userId: submission?.userId?._id,
+      status: submission?.status,
+      message: emailError?.message || emailError,
+    });
+  }
+};
+
 const handleVideoUpload = (req, res, next) => {
   upload.single('videoFile')(req, res, (error) => {
     if (!error) return next();
@@ -294,6 +320,8 @@ router.post('/submit', authenticateUser, requireProfileComplete, handleVideoUplo
       description,
       filePath: uploadedFileUrl,
     });
+
+    await sendVideoSubmittedEmailSafely(submission);
 
     logger.info(`${req.actorName || 'User'} submitted an award video.`);
     res.status(201).json({
@@ -392,6 +420,8 @@ router.post('/submit-direct', authenticateUser, requireProfileComplete, async (r
       description,
       filePath: getPublicR2Url(normalizedObjectKey),
     });
+
+    await sendVideoSubmittedEmailSafely(submission);
 
     logger.info(`${req.actorName || 'User'} submitted an award video via direct upload.`);
     res.status(201).json({
@@ -497,6 +527,8 @@ router.put('/review/:id', authenticateAdmin, async (req, res) => {
 
     await submission.save();
     await submission.populate(['userId', 'reviewedBy']);
+
+    await sendVideoReviewEmailSafely(submission);
 
     logger.info(`${req.actorName || 'Admin'} reviewed a video submission with status ${status}.`);
     res.json({
