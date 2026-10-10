@@ -65,6 +65,7 @@ const createR2Client = () => {
     region: 'auto',
     endpoint,
     forcePathStyle: true,
+    requestChecksumCalculation: 'WHEN_REQUIRED',
     credentials: {
       accessKeyId,
       secretAccessKey,
