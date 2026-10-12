@@ -8,7 +8,7 @@ import User from '../models/User.js';
 import Registration from '../models/Registration.js';
 import Attendance from '../models/Attendance.js';
 import Payment from '../models/Payment.js';
-import Counter from '../models/Counter.js';
+import { registrationNumbering } from '../services/registrationNumbering.js';
 import { calculateRegistrationTotals, getBookingPhase } from '../utils/pricing.js';
 import { buildRegistrationInvoicePdf } from '../utils/invoice.js';
 import { sendPasswordResetEmail, sendPaymentSuccessEmail } from '../utils/email.js';
@@ -422,12 +422,10 @@ const main = async () => {
       .lean();
     if (maxReg?.registrationNumber) {
       const maxSeq = Number(String(maxReg.registrationNumber).split('-')[1]) || 0;
-      await Counter.findOneAndUpdate(
-        { name: 'registrationNumber' },
-        { seq: maxSeq },
-        { upsert: true, new: true }
-      );
-      console.log(`Counter synced to ${maxSeq}.`);
+      const state = await registrationNumbering.state(Registration);
+      const importSeq = Math.max(600, maxSeq, state.importSeq);
+      await registrationNumbering.updateCounter(Registration, { source: 'import', seq: importSeq });
+      console.log(`Import counter synced to ${importSeq}; online counter unchanged.`);
     }
   }
 

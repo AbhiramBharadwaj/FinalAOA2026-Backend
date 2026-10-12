@@ -10,7 +10,7 @@ import Abstract from '../models/Abstract.js';
 import Feedback from '../models/Feedback.js';
 import User from '../models/User.js';
 import Attendance from '../models/Attendance.js';
-import Counter from '../models/Counter.js';
+import { buildRegistrationNumber, parseRegistrationSeq, registrationNumbering, ONLINE_LIMIT } from '../services/registrationNumbering.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { sendCollegeLetterReviewEmail, sendPasswordResetEmail, sendPaymentSuccessEmail } from '../utils/email.js';
 import { getBookingPhase } from '../utils/pricing.js';
@@ -171,16 +171,6 @@ const readManagedAccommodationInput = (body) => {
   };
 };
 
-const buildRegistrationNumber = (seq) =>
-  `${REGISTRATION_PREFIX}${String(seq).padStart(4, '0')}`;
-
-const parseRegistrationSeq = (registrationNumber) => {
-  if (!registrationNumber?.startsWith(REGISTRATION_PREFIX)) return null;
-  const raw = registrationNumber.slice(REGISTRATION_PREFIX.length);
-  const seq = Number.parseInt(raw, 10);
-  return Number.isNaN(seq) ? null : seq;
-};
-
 const buildRegistrationLabel = (registration) => {
   const labels = [];
   if (registration?.addWorkshop || registration?.selectedWorkshop) labels.push('Workshop');
@@ -198,56 +188,19 @@ const createResetToken = () => {
 
 const getFrontendUrl = () => process.env.FRONTEND_URL || 'http://localhost:5173';
 
-const getMaxRegistrationSeq = async () => {
-  const maxResult = await Registration.aggregate([
-    { $match: { registrationNumber: { $regex: /^AOA2026-\d+$/ } } },
-    {
-      $project: {
-        seq: {
-          $toInt: { $substrBytes: ['$registrationNumber', REGISTRATION_PREFIX.length, 10] },
-        },
-      },
-    },
-    { $group: { _id: null, maxSeq: { $max: '$seq' } } },
-  ]);
-  return maxResult[0]?.maxSeq || 0;
-};
-
-const findNextAvailableRegistration = async (startSeq) => {
-  let seq = Math.max(1, Number(startSeq) || 1);
-  while (seq < 100000) {
-    const registrationNumber = buildRegistrationNumber(seq);
-    const exists = await Registration.exists({ registrationNumber });
-    if (!exists) {
-      return { seq, registrationNumber };
-    }
-    seq += 1;
-  }
-  throw new Error('Unable to find available registration number');
-};
-
 const computeAvailabilityInRange = async (start, end) => {
-  const registrations = await Registration.find(
-    { registrationNumber: { $regex: /^AOA2026-\d+$/ } },
-    'registrationNumber'
-  ).lean();
-
-  const used = new Set();
-  for (const reg of registrations) {
-    const seq = parseRegistrationSeq(reg.registrationNumber);
-    if (seq !== null && seq >= start && seq <= end) {
-      used.add(seq);
-    }
-  }
+  const { used: assigned, onlineSeq } = await registrationNumbering.state(Registration);
 
   const available = [];
   const usedList = [];
+  const reserved = [];
   for (let seq = start; seq <= end; seq += 1) {
-    if (used.has(seq)) usedList.push(seq);
+    if (assigned.has(seq)) usedList.push(seq);
+    else if (seq > onlineSeq && seq <= ONLINE_LIMIT) reserved.push(seq);
     else available.push(seq);
   }
 
-  return { available, used: usedList };
+  return { available, used: usedList, reserved };
 };
 
 // Enhanced Dashboard with more comprehensive data
@@ -452,20 +405,25 @@ router.get('/manual-registrations/availability', authenticateAdmin, async (req, 
     const safeStart = Number.isNaN(rangeStart) ? 1 : Math.max(1, rangeStart);
     const safeEnd = Number.isNaN(rangeEnd) ? safeStart : Math.max(safeStart, rangeEnd);
 
-    const counter = await Counter.findOne({ name: 'registrationNumber' }).lean();
-    const { available, used } = await computeAvailabilityInRange(safeStart, safeEnd);
-    const counterSeq = counter?.seq || 0;
-    const startSeq = available.length ? available[0] : Math.max(safeEnd + 1, counterSeq + 1);
-    const nextAvailable = await findNextAvailableRegistration(startSeq);
+    const state = await registrationNumbering.state(Registration);
+    const { available, used, reserved } = await computeAvailabilityInRange(safeStart, safeEnd);
+    const counterSeq = state.onlineSeq;
+    const nextAvailable = await registrationNumbering.preview(Registration, {
+      source: 'import', preferredSeq: available[0],
+    });
     const nextInRange = available.length ? buildRegistrationNumber(available[0]) : null;
-    const afterRangeStart = Math.max(safeEnd + 1, counterSeq + 1);
-    const nextAfterRange = await findNextAvailableRegistration(afterRangeStart);
+    const nextAfterRange = await registrationNumbering.preview(Registration, {
+      source: 'import', preferredSeq: Math.max(ONLINE_LIMIT + 1, safeEnd + 1),
+    });
 
     res.json({
       range: { start: safeStart, end: safeEnd },
       availableNumbers: available,
       usedNumbers: used,
+      reservedForOnlineNumbers: reserved,
       currentCounter: counterSeq,
+      importCounter: state.importSeq,
+      nextOnlineRegistration: buildRegistrationNumber(state.nextOnline),
       nextAvailable,
       nextAvailableInRange: nextInRange,
       nextAvailableAfterRange: nextAfterRange?.registrationNumber || null,
@@ -481,14 +439,21 @@ router.get('/manual-registrations/availability', authenticateAdmin, async (req, 
 
 router.get('/counters/registration-number', authenticateAdmin, async (req, res) => {
   try {
-    const counter = await Counter.findOne({ name: 'registrationNumber' }).lean();
-    const maxSeq = await getMaxRegistrationSeq();
-    const counterSeq = counter?.seq || 0;
-    const suggestedNext = Math.max(counterSeq + 1, maxSeq + 1);
+    const state = await registrationNumbering.state(Registration);
+    const source = req.query.source || 'online';
+    if (!['online', 'import'].includes(source)) return res.status(400).json({ message: 'Invalid numbering source.' });
+    const counterSeq = source === 'online' ? state.onlineSeq : state.importSeq;
+    const suggestedNext = source === 'online' ? state.nextOnline : state.nextImport;
     res.json({
       counter: counterSeq,
-      maxUsed: maxSeq,
+      source,
+      maxUsed: state.maxUsed,
       suggestedNext,
+      onlineCounter: state.onlineSeq,
+      importCounter: state.importSeq,
+      nextOnlineRegistration: buildRegistrationNumber(state.nextOnline),
+      nextImportRegistration: buildRegistrationNumber(state.nextImport),
+      onlineReservedThrough: ONLINE_LIMIT,
     });
   } catch (error) {
     logger.error('admin.counter_fetch.error', {
@@ -502,24 +467,19 @@ router.get('/counters/registration-number', authenticateAdmin, async (req, res) 
 router.put('/counters/registration-number', authenticateAdmin, async (req, res) => {
   try {
     const requested = Number(req.body.seq);
-    if (!Number.isFinite(requested) || requested < 0) {
+    if (!Number.isSafeInteger(requested) || requested < 0) {
       return res.status(400).json({ message: 'Valid seq is required.' });
     }
-    const maxSeq = await getMaxRegistrationSeq();
-    if (requested < maxSeq) {
-      return res.status(400).json({
-        message: `Counter cannot be set below max used (${maxSeq}).`,
-      });
-    }
-    const counter = await Counter.findOneAndUpdate(
-      { name: 'registrationNumber' },
-      { seq: requested },
-      { new: true, upsert: true }
-    );
+    const source = req.body.source || 'online';
+    await registrationNumbering.updateCounter(Registration, { source, seq: requested });
+    const state = await registrationNumbering.state(Registration);
     res.json({
       message: 'Counter updated',
-      counter: counter?.seq || requested,
-      maxUsed: maxSeq,
+      counter: requested,
+      source,
+      maxUsed: state.maxUsed,
+      onlineCounter: state.onlineSeq,
+      importCounter: state.importSeq,
     });
   } catch (error) {
     logger.error('admin.counter_update.error', {
@@ -787,13 +747,15 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       } else {
         preferredSeq = Number(preferredRegistrationNumber);
       }
+      if (!Number.isSafeInteger(preferredSeq) || preferredSeq < 1 || preferredSeq >= 100000) {
+        return res.status(400).json({ message: 'A valid registration number is required.' });
+      }
     }
 
-    const safeRangeStart = Number(rangeStart) || 1;
-    const safeRangeEnd = Number(rangeEnd) || 14;
-    const startSeq = preferredSeq || safeRangeStart;
-
-    const { registrationNumber, seq } = await findNextAvailableRegistration(startSeq);
+    const startSeq = preferredSeq || (rangeStart ? Number(rangeStart) : undefined);
+    await registrationNumbering.preview(Registration, {
+      source: 'import', preferredSeq: startSeq,
+    });
 
     const phase = bookingPhase || getBookingPhase();
     const totals = computeRegistrationTotals({
@@ -849,7 +811,7 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
     const effectiveOrderId =
       verifiedProviderPayment?.order_id ||
       (razorpayOrderId ? String(razorpayOrderId).trim() : null) ||
-      `manual_${Date.now()}_${registrationNumber}`;
+      `manual_${Date.now()}_${crypto.randomUUID()}`;
 
     const duplicatePayment = await Payment.findOne({
       $or: [
@@ -922,7 +884,6 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
       couponDiscount: totals.couponDiscount,
       couponAppliedAt: totals.couponCode ? new Date() : undefined,
       paymentStatus: 'PAID',
-      registrationNumber,
       razorpayPaymentId: effectivePaymentId,
       razorpayOrderId: effectiveOrderId,
       isManualRegistration: true,
@@ -960,16 +921,9 @@ router.post('/manual-registrations', authenticateAdmin, async (req, res) => {
           );
         }
 
-        [registration] = await Registration.create(
-          [{ userId: user._id, ...registrationPayload }],
-          { session }
-        );
-
-        await Counter.findOneAndUpdate(
-          { name: 'registrationNumber' },
-          { $max: { seq } },
-          { upsert: true, session }
-        );
+        registration = new Registration({ userId: user._id, ...registrationPayload });
+        registration.$locals.preferredRegistrationSeq = startSeq;
+        await registration.save({ session });
 
         [attendance] = await Attendance.create(
           [{ registrationId: registration._id, qrCodeData: registration.registrationNumber }],

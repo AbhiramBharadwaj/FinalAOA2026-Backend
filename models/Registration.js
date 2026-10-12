@@ -1,5 +1,5 @@
 import mongoose from 'mongoose';
-import Counter from './Counter.js';
+import { parseRegistrationSeq, registrationNumbering } from '../services/registrationNumbering.js';
 
 const registrationSchema = new mongoose.Schema(
   {
@@ -222,51 +222,17 @@ const registrationSchema = new mongoose.Schema(
 );
 
 
-const REGISTRATION_COUNTER_NAME = 'registrationNumber';
-const REGISTRATION_PREFIX = 'AOA2026-';
-const REGISTRATION_PREFIX_LENGTH = REGISTRATION_PREFIX.length;
-
-const ensureRegistrationCounter = async (RegistrationModel) => {
-  const existing = await Counter.findOne({ name: REGISTRATION_COUNTER_NAME });
-  if (existing) return;
-
-  const maxResult = await RegistrationModel.aggregate([
-    { $match: { registrationNumber: { $regex: /^AOA2026-\d+$/ } } },
-    {
-      $project: {
-        seq: {
-          $toInt: {
-            $substrBytes: ['$registrationNumber', REGISTRATION_PREFIX_LENGTH, 10],
-          },
-        },
-      },
-    },
-    { $group: { _id: null, maxSeq: { $max: '$seq' } } },
-  ]);
-
-  const initialSeq = maxResult[0]?.maxSeq || 0;
-  try {
-    await Counter.create({
-      name: REGISTRATION_COUNTER_NAME,
-      seq: initialSeq,
-    });
-  } catch (err) {
-    if (err?.code !== 11000) {
-      throw err;
-    }
-  }
-};
-
 registrationSchema.pre('save', async function (next) {
-  if (this.isNew && !this.registrationNumber) {
+  if (this.isNew) {
     try {
-      await ensureRegistrationCounter(this.constructor);
-      const counter = await Counter.findOneAndUpdate(
-        { name: REGISTRATION_COUNTER_NAME },
-        { $inc: { seq: 1 } },
-        { new: true }
-      );
-      this.registrationNumber = `${REGISTRATION_PREFIX}${String(counter.seq).padStart(4, '0')}`;
+      const explicit = Boolean(this.registrationNumber);
+      const preferredSeq = explicit ? parseRegistrationSeq(this.registrationNumber) : this.$locals.preferredRegistrationSeq;
+      if (explicit && preferredSeq === null) throw new Error('Invalid registration number.');
+      const result = await registrationNumbering.allocate(this.constructor, {
+        source: this.isManualRegistration || explicit ? 'import' : 'online',
+        preferredSeq, exact: explicit, session: this.$session(),
+      });
+      this.registrationNumber = result.registrationNumber;
     } catch (err) {
       return next(err);
     }
