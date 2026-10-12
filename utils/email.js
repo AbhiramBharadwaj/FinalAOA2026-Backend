@@ -1,5 +1,6 @@
 import logger from './logger.js';
 import Counter from '../models/Counter.js';
+import { sesEmailSender } from '../services/sesEmail.js';
 
 const resendEndpoint = 'https://api.resend.com/emails';
 
@@ -101,7 +102,7 @@ const reserveResendQuota = async (count) => {
 
 const sendViaZoho = async ({ to, subject, text, html, attachments }) => {
   const key = process.env.ZOHO_CPAAS_API_KEY?.trim();
-  if (!key) throw new Error('ZOHO_CPAAS_API_KEY not configured');
+  if (!key) throw Object.assign(new Error('ZOHO_CPAAS_API_KEY not configured'), { rejected: true });
   const payload = {
     from: { address: process.env.ZOHO_FROM_EMAIL || 'info@aoacon2026.com' },
     to: (Array.isArray(to) ? to : [to]).map((address) => ({ email_address: { address } })),
@@ -128,10 +129,49 @@ const sendViaZoho = async ({ to, subject, text, html, attachments }) => {
     },
     body: JSON.stringify(payload),
   });
-  const result = await response.json();
-  if (!response.ok || result.data?.[0]?.code !== 'EM_104') {
-    throw new Error(`Zoho email rejected (${response.status}): ${result.error?.message || result.message || 'Unknown error'}`);
+  let result;
+  try { result = await response.json(); }
+  catch (cause) {
+    const rejected = response.status >= 400 && response.status < 500 && response.status !== 408;
+    throw Object.assign(new Error(`Zoho returned an unreadable response (${response.status}); delivery ${rejected ? 'rejected' : 'unconfirmed'}`), { rejected, cause });
   }
+  if (!response.ok || result.data?.[0]?.code !== 'EM_104') {
+    const error = new Error(`Zoho email rejected (${response.status}): ${result.error?.message || result.message || 'Unknown error'}`);
+    // A timeout/5xx or an unrecognizable success response cannot prove non-acceptance.
+    error.rejected = (response.status >= 400 && response.status < 500 && response.status !== 408) ||
+      (response.ok && (Boolean(result.error) || result.status === 'failure' ||
+        (typeof result.data?.[0]?.code === 'string' && result.data[0].code !== 'EM_104')));
+    throw error;
+  }
+};
+
+export const getZohoQuotaCounterName = (now = new Date()) => {
+  const day = new Intl.DateTimeFormat('en-CA', {
+    timeZone: process.env.ZOHO_QUOTA_TIMEZONE || 'Asia/Kolkata',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(now);
+  return `email:zoho:${day}`;
+};
+
+const sendAfterResend = async (message, count) => {
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      await sendViaZoho(message);
+      // Tracking errors after acceptance must never cause another send.
+      try {
+        await Counter.updateOne({ name: getZohoQuotaCounterName() }, { $inc: { seq: count } }, { upsert: true });
+      } catch (error) {
+        logger.warn('Zoho accepted email but usage tracking failed.', { message: error.message });
+      }
+      return { provider: 'zoho' };
+    } catch (error) {
+      if (!error.rejected) throw error;
+      logger.warn(`Zoho attempt ${attempt} rejected.`, { message: error.message });
+      if (attempt === 1) await new Promise(resolve => setTimeout(resolve, 1000));
+    }
+  }
+  logger.warn('Both Zoho attempts rejected; routing email to SES.');
+  return sesEmailSender.send(message);
 };
 
 export const sendEmail = async ({ to, subject, text, html, attachments }) => {
@@ -139,30 +179,38 @@ export const sendEmail = async ({ to, subject, text, html, attachments }) => {
   logger.info(`Sending email to ${recipients.join(', ')} with subject "${subject}".`);
   try {
     const message = { to, subject, text, html, attachments };
+    const selectedProvider = (process.env.EMAIL_PROVIDER || 'auto').toLowerCase();
+    if (!['auto', 'ses'].includes(selectedProvider)) throw new Error('EMAIL_PROVIDER must be auto or ses');
+    if (selectedProvider === 'ses') {
+      const result = await sesEmailSender.send(message);
+      logger.info('Email provider ses accepted message.', { messageId: result.messageId });
+      return result;
+    }
     let reservation;
     try {
       reservation = await reserveResendQuota(recipients.length);
     } catch (error) {
       logger.warn('Resend quota unavailable; routing email to Zoho.', { message: error.message });
     }
-    let provider = 'zoho';
+    let delivery;
     if (reservation) {
       try {
         await sendViaResend(message);
-        provider = 'resend';
+        delivery = { provider: 'resend' };
       } catch (error) {
         // Keep uncertain sends counted and never retry them on another provider.
         if (error.rejected) {
           await Counter.updateOne({ name: reservation }, { $inc: { seq: -recipients.length } });
         }
         if (!error.quotaExceeded) throw error;
-        await sendViaZoho(message);
+        delivery = await sendAfterResend(message, recipients.length);
       }
     } else {
-      await sendViaZoho(message);
+      delivery = await sendAfterResend(message, recipients.length);
     }
-    logger.info(`Email provider ${provider} accepted message.`);
+    logger.info(`Email provider ${delivery.provider} accepted message.`, { messageId: delivery.messageId });
     logger.info(`Email sent to ${recipients.join(', ')} with subject "${subject}".`);
+    return delivery;
   } catch (error) {
     logger.error(`Failed to send email to ${recipients.join(', ')}.`, {
       message: error?.message || error,
