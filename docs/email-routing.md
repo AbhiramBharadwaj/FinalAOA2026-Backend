@@ -1,15 +1,14 @@
 # Email provider routing
 
 Backend emails use Resend until RESEND_DAILY_SWITCH_LIMIT is reached, then
-use Zoho CPaaS. The temporary testing threshold is 20 recipients per day.
-Set the threshold to 90 after verifying the switch.
+use Zoho CPaaS. The configured threshold is 75 recipients per day.
 
 Production configuration is stored in the GitHub Actions PROD_ENV_FILE secret:
 
 ```env
 ZOHO_CPAAS_API_KEY="<Zoho API key>"
 ZOHO_FROM_EMAIL=info@aoacon2026.com
-RESEND_DAILY_SWITCH_LIMIT=20
+RESEND_DAILY_SWITCH_LIMIT=75
 ```
 
 Preserve all other settings when replacing that secret. Pushes to master

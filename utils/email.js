@@ -70,7 +70,7 @@ const sendViaResend = async ({ to, subject, text, html, attachments }) => {
 };
 
 const reserveResendQuota = async (count) => {
-  const threshold = Number(process.env.RESEND_DAILY_SWITCH_LIMIT || 20);
+  const threshold = Number(process.env.RESEND_DAILY_SWITCH_LIMIT || 75);
   if (!Number.isInteger(threshold) || threshold < 1 || threshold > 90) {
     throw new Error('RESEND_DAILY_SWITCH_LIMIT must be an integer from 1 to 90');
   }
