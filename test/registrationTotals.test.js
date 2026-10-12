@@ -55,7 +55,7 @@ test('uses the configured workshop capacities', () => {
   assert.deepEqual(WORKSHOP_CAPACITIES, {
     'labour-analgesia': 50,
     'critical-incidents': 40,
-    pocus: 41,
+    pocus: 42,
     'maternal-collapse': 40,
   });
 });
@@ -63,8 +63,9 @@ test('uses the configured workshop capacities', () => {
 test('marks workshops full based on their individual capacity', () => {
   assert.equal(isWorkshopFullForUser(49, 'labour-analgesia'), false);
   assert.equal(isWorkshopFullForUser(50, 'labour-analgesia'), true);
-  assert.equal(isWorkshopFullForUser(41, 'pocus'), true);
-  assert.equal(isWorkshopFullForUser(41, 'pocus', true), false);
+  assert.equal(isWorkshopFullForUser(41, 'pocus'), false);
+  assert.equal(isWorkshopFullForUser(42, 'pocus'), true);
+  assert.equal(isWorkshopFullForUser(42, 'pocus', true), false);
 });
 
 test('builds workshop availability details', () => {
