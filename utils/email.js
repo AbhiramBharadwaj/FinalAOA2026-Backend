@@ -1,4 +1,5 @@
 import logger from './logger.js';
+import Counter from '../models/Counter.js';
 
 const resendEndpoint = 'https://api.resend.com/emails';
 
@@ -50,6 +51,7 @@ const sendViaResend = async ({ to, subject, text, html, attachments }) => {
   }
 
   const response = await fetch(resendEndpoint, {
+    signal: AbortSignal.timeout(15000),
     method: 'POST',
     headers: {
       Authorization: `Bearer ${apiKey}`,
@@ -60,15 +62,106 @@ const sendViaResend = async ({ to, subject, text, html, attachments }) => {
 
   if (!response.ok) {
     const errorText = await response.text();
-    throw new Error(`Resend error ${response.status}: ${errorText}`);
+    const error = new Error(`Resend error ${response.status}: ${errorText}`);
+    error.quotaExceeded = /daily_quota_exceeded|monthly_quota_exceeded/.test(errorText);
+    error.rejected = true;
+    throw error;
   }
 };
 
-const sendEmail = async ({ to, subject, text, html, attachments }) => {
+const reserveResendQuota = async (count) => {
+  const threshold = Number(process.env.RESEND_DAILY_SWITCH_LIMIT || 20);
+  if (!Number.isInteger(threshold) || threshold < 1 || threshold > 90) {
+    throw new Error('RESEND_DAILY_SWITCH_LIMIT must be an integer from 1 to 90');
+  }
+  const response = await fetch('https://api.resend.com/usage', {
+    signal: AbortSignal.timeout(10000),
+    headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+  });
+  if (!response.ok) throw new Error(`Resend usage check failed (${response.status}); full-access API key required`);
+  const usage = await response.json();
+  const daily = usage.emails?.daily;
+  const monthly = usage.emails?.monthly;
+  if (!Number.isFinite(daily?.used) || !daily.resets_at) throw new Error('Invalid Resend usage response');
+  if (monthly?.limit != null && monthly.used + count > monthly.limit) return null;
+  const name = `email:resend:${daily.resets_at}`;
+  try {
+    await Counter.updateOne({ name }, { $setOnInsert: { seq: daily.used } }, { upsert: true });
+  } catch (error) {
+    if (error.code !== 11000) throw error;
+  }
+  await Counter.updateOne({ name }, { $max: { seq: daily.used } });
+  const reservation = await Counter.findOneAndUpdate(
+    { name, seq: { $lte: Math.min(threshold, daily.limit ?? threshold) - count } },
+    { $inc: { seq: count } },
+    { new: true }
+  );
+  return reservation ? name : null;
+};
+
+const sendViaZoho = async ({ to, subject, text, html, attachments }) => {
+  const key = process.env.ZOHO_CPAAS_API_KEY?.trim();
+  if (!key) throw new Error('ZOHO_CPAAS_API_KEY not configured');
+  const payload = {
+    from: { address: process.env.ZOHO_FROM_EMAIL || 'info@aoacon2026.com' },
+    to: (Array.isArray(to) ? to : [to]).map((address) => ({ email_address: { address } })),
+    subject,
+    textbody: text,
+    htmlbody: html,
+  };
+  for (const attachment of normalizeResendAttachments(attachments)) {
+    const field = attachment.content_id ? 'inline_images' : 'attachments';
+    (payload[field] ||= []).push({
+      name: attachment.filename,
+      content: attachment.content,
+      mime_type: attachment.content_type || 'application/octet-stream',
+      ...(attachment.content_id ? { cid: attachment.content_id } : {}),
+    });
+  }
+  const response = await fetch(process.env.ZOHO_CPAAS_EMAIL_URL || 'https://cpaas.zoho.in/v1.1/email', {
+    signal: AbortSignal.timeout(15000),
+    method: 'POST',
+    headers: {
+      Authorization: key.startsWith('Zoho-enczapikey ') ? key : `Zoho-enczapikey ${key}`,
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+  const result = await response.json();
+  if (!response.ok || result.data?.[0]?.code !== 'EM_104') {
+    throw new Error(`Zoho email rejected (${response.status}): ${result.error?.message || result.message || 'Unknown error'}`);
+  }
+};
+
+export const sendEmail = async ({ to, subject, text, html, attachments }) => {
   const recipients = Array.isArray(to) ? to : [to];
   logger.info(`Sending email to ${recipients.join(', ')} with subject "${subject}".`);
   try {
-    await sendViaResend({ to, subject, text, html, attachments });
+    const message = { to, subject, text, html, attachments };
+    let reservation;
+    try {
+      reservation = await reserveResendQuota(recipients.length);
+    } catch (error) {
+      logger.warn('Resend quota unavailable; routing email to Zoho.', { message: error.message });
+    }
+    let provider = 'zoho';
+    if (reservation) {
+      try {
+        await sendViaResend(message);
+        provider = 'resend';
+      } catch (error) {
+        // Keep uncertain sends counted and never retry them on another provider.
+        if (error.rejected) {
+          await Counter.updateOne({ name: reservation }, { $inc: { seq: -recipients.length } });
+        }
+        if (!error.quotaExceeded) throw error;
+        await sendViaZoho(message);
+      }
+    } else {
+      await sendViaZoho(message);
+    }
+    logger.info(`Email provider ${provider} accepted message.`);
     logger.info(`Email sent to ${recipients.join(', ')} with subject "${subject}".`);
   } catch (error) {
     logger.error(`Failed to send email to ${recipients.join(', ')}.`, {
