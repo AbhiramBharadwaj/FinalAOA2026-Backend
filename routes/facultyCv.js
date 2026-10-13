@@ -7,7 +7,7 @@ import FacultyCv from '../models/FacultyCv.js';
 import Registration from '../models/Registration.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { facultyCvOtpLimiter, facultyCvRecoveryLimiter } from '../middleware/rateLimits.js';
-import { sendFacultyCvOtpEmail } from '../utils/email.js';
+import { sendFacultyCvOtpEmail, sendFacultyCvAcknowledgmentEmail } from '../utils/email.js';
 import { sendErrorResponse } from '../utils/httpError.js';
 import logger from '../utils/logger.js';
 
@@ -278,6 +278,14 @@ router.post('/upload', handleCvUpload, async (req, res) => {
     await faculty.save();
 
     logger.info(`Faculty CV uploaded for ${faculty.email}.`);
+    try {
+      await sendFacultyCvAcknowledgmentEmail({ email: faculty.email, name: faculty.name });
+    } catch (error) {
+      logger.error('faculty_cv.acknowledgment_email.error', {
+        facultyId: String(faculty._id),
+        message: error?.message || error,
+      });
+    }
     return res.status(201).json({
       message: 'CV uploaded successfully',
       faculty: {

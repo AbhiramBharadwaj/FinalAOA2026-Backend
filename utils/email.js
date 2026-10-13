@@ -322,6 +322,29 @@ export const sendFacultyCvOtpEmail = async ({ email, name, otp }) => {
   });
 };
 
+export const sendFacultyCvAcknowledgmentEmail = async ({ email, name }) => {
+  const subject = 'AOACON 2026 – Thank You for Submitting Your CV';
+  const recipientName = String(name || '').trim().replace(/^(?:dr\.?\s+)+/i, '') || 'Doctor';
+  const greeting = recipientName === 'Doctor' ? 'Dear Doctor,' : `Dear Dr. ${recipientName},`;
+  const safeGreeting = greeting.replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  }[character]));
+  const confirmation = 'Thank you for uploading your CV for AOACON 2026. We confirm that your file has been received successfully.';
+  const appreciation = 'We appreciate your time and look forward to your participation in AOACON 2026.';
+
+  return sendEmail({
+    to: email,
+    subject,
+    text: [greeting, '', confirmation, '', appreciation, '', 'Warm regards,', 'AOACON 2026 Organizing Team'].join('\n'),
+    html: wrapEmail('Thank You for Submitting Your CV', `
+      <p style="margin:0 0 10px;">${safeGreeting}</p>
+      <p style="margin:0 0 12px;">${confirmation}</p>
+      <p style="margin:0 0 12px;">${appreciation}</p>
+      <p style="margin:0;">Warm regards,<br>AOACON 2026 Organizing Team</p>
+    `),
+  });
+};
+
 export const sendRegistrationEmail = async (user) => {
   const subject = 'AOACON 2026 Registration Received';
   const text = [
