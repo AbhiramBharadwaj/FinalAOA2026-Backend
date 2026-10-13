@@ -1,6 +1,6 @@
 import logger from './logger.js';
 import Counter from '../models/Counter.js';
-import { sesEmailSender } from '../services/sesEmail.js';
+// SES is temporarily disabled; all backend emails use Resend or Zoho.
 
 const resendEndpoint = 'https://api.resend.com/emails';
 
@@ -68,6 +68,9 @@ const sendViaResend = async ({ to, subject, text, html, attachments }) => {
     error.rejected = true;
     throw error;
   }
+  const result = await response.json();
+  if (!result.id) throw new Error('Resend acceptance could not be confirmed');
+  return { provider: 'resend', messageId: result.id };
 };
 
 const reserveResendQuota = async (count) => {
@@ -167,11 +170,10 @@ const sendAfterResend = async (message, count) => {
     } catch (error) {
       if (!error.rejected) throw error;
       logger.warn(`Zoho attempt ${attempt} rejected.`, { message: error.message });
+      if (attempt === 2) throw error;
       if (attempt === 1) await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
-  logger.warn('Both Zoho attempts rejected; routing email to SES.');
-  return sesEmailSender.send(message);
 };
 
 export const sendEmail = async ({ to, subject, text, html, attachments }) => {
@@ -180,11 +182,9 @@ export const sendEmail = async ({ to, subject, text, html, attachments }) => {
   try {
     const message = { to, subject, text, html, attachments };
     const selectedProvider = (process.env.EMAIL_PROVIDER || 'auto').toLowerCase();
-    if (!['auto', 'ses'].includes(selectedProvider)) throw new Error('EMAIL_PROVIDER must be auto or ses');
+    if (!['auto', 'ses'].includes(selectedProvider)) throw new Error('EMAIL_PROVIDER must be auto');
     if (selectedProvider === 'ses') {
-      const result = await sesEmailSender.send(message);
-      logger.info('Email provider ses accepted message.', { messageId: result.messageId });
-      return result;
+      logger.warn('SES is disabled; using Resend and Zoho routing.');
     }
     let reservation;
     try {
@@ -195,8 +195,7 @@ export const sendEmail = async ({ to, subject, text, html, attachments }) => {
     let delivery;
     if (reservation) {
       try {
-        await sendViaResend(message);
-        delivery = { provider: 'resend' };
+        delivery = await sendViaResend(message);
       } catch (error) {
         // Keep uncertain sends counted and never retry them on another provider.
         if (error.rejected) {

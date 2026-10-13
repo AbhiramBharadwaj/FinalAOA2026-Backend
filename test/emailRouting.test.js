@@ -70,19 +70,21 @@ test('email routing respects quota, reset, rejection and attachments', async (t)
   assert.equal(sent.slice(start).filter(({ provider }) => provider === 'resend').length, 1);
 });
 
-test('explicit SES tests bypass other providers and do not retry uncertain sends', async t => {
+test('legacy SES configuration uses Resend and Zoho without invoking SES', async t => {
   const env = { ...process.env }; const send = sesEmailSender.send; const fetch = globalThis.fetch;
-  t.after(() => { process.env = env; sesEmailSender.send = send; globalThis.fetch = fetch; });
+  const update = Counter.updateOne;
+  t.after(() => { process.env = env; sesEmailSender.send = send; globalThis.fetch = fetch; Counter.updateOne = update; });
   process.env.EMAIL_PROVIDER = 'ses';
-  let calls = 0; globalThis.fetch = async () => { calls++; throw Error('Unexpected backup send'); };
-  const message = { to: 'test@example.com', subject: 'Test', text: 'Test' };
-  sesEmailSender.send = async () => ({ provider: 'ses', messageId: 'ses-test' });
-  assert.equal((await sendEmail(message)).provider, 'ses');
-  sesEmailSender.send = async () => { throw Object.assign(new Error('timeout'), { name: 'TimeoutError' }); };
-  await assert.rejects(sendEmail(message), /timeout/); assert.equal(calls, 0);
+  process.env.ZOHO_CPAAS_API_KEY = 'test';
+  sesEmailSender.send = async () => { throw Error('SES must remain disabled'); };
+  Counter.updateOne = async () => {};
+  globalThis.fetch = async url => url.endsWith('/usage')
+    ? new Response('{}', { status: 403 })
+    : new Response(JSON.stringify({ data: [{ code: 'EM_104' }] }));
+  assert.equal((await sendEmail({ to: 'test@example.com', subject: 'Test', text: 'Test' })).provider, 'zoho');
 });
 
-test('Zoho has no application cap and SES is used only for an explicit rejection', async t => {
+test('Zoho has no application cap and exhausted retries never invoke SES', async t => {
   const env = { ...process.env }; const send = sesEmailSender.send; const fetch = globalThis.fetch;
   const update = Counter.updateOne; const find = Counter.findOneAndUpdate;
   t.after(() => { process.env = env; sesEmailSender.send = send; globalThis.fetch = fetch; Counter.updateOne = update; Counter.findOneAndUpdate = find; });
@@ -102,8 +104,8 @@ test('Zoho has no application cap and SES is used only for an explicit rejection
   const results = await Promise.all([sendEmail(message),sendEmail(message),sendEmail(message)]);
   assert.equal(zohoCalls,3);assert.equal(sesCalls,0);assert.equal(used,103);
   assert.ok(results.every(r=>r.provider==='zoho'));
-  failure='quota';assert.equal((await sendEmail(message)).provider,'ses');assert.equal(sesCalls,1);
-  failure='network';await assert.rejects(sendEmail(message),/Unknown Zoho/);assert.equal(sesCalls,1);
+  failure='quota';await assert.rejects(sendEmail(message), /Rate limit/);assert.equal(sesCalls,0);
+  failure='network';await assert.rejects(sendEmail(message),/Unknown Zoho/);assert.equal(sesCalls,0);
 });
 
 test('Zoho daily counter changes at the configured midnight', t => {
@@ -142,22 +144,22 @@ test('Zoho retries definite failures twice, preserves attachments, and stops on 
   assert.equal(calls.length, 2); assert.deepEqual(calls[0], calls[1]); assert.equal(sesCalls, 0);
 
   calls = []; replies = [rejected(), rejected()];
-  assert.equal((await sendEmail(message)).provider, 'ses');
-  assert.equal(calls.length, 2); assert.equal(sesCalls, 1);
+  await assert.rejects(sendEmail(message), /Authentication failed/);
+  assert.equal(calls.length, 2); assert.equal(sesCalls, 0);
 
   calls = []; replies = [rejected(), new Error('Response lost')];
   await assert.rejects(sendEmail(message), /Response lost/);
-  assert.equal(calls.length, 2); assert.equal(sesCalls, 1);
+  assert.equal(calls.length, 2); assert.equal(sesCalls, 0);
 
   calls = []; replies = [new Response('upstream failed', { status: 503 })];
   await assert.rejects(sendEmail(message), /unconfirmed/);
-  assert.equal(calls.length, 1); assert.equal(sesCalls, 1);
+  assert.equal(calls.length, 1); assert.equal(sesCalls, 0);
 
   calls = []; replies = [new Response('{}')];
   await assert.rejects(sendEmail(message), /Zoho email rejected/);
-  assert.equal(calls.length, 1); assert.equal(sesCalls, 1);
+  assert.equal(calls.length, 1); assert.equal(sesCalls, 0);
 
   trackingFails = true; calls = []; replies = [accepted()];
   assert.equal((await sendEmail(message)).provider, 'zoho');
-  assert.equal(calls.length, 1); assert.equal(sesCalls, 1);
+  assert.equal(calls.length, 1); assert.equal(sesCalls, 0);
 });
