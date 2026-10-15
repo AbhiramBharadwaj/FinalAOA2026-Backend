@@ -17,7 +17,7 @@ import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
-const ABSTRACT_SUBMISSION_DEADLINE = new Date('2026-10-15T14:22:22.000Z');
+const ABSTRACT_SUBMISSION_DEADLINE = new Date('2026-10-15T18:29:59.999Z');
 const FINAL_POSTER_SUBMISSION_DEADLINE = new Date('2026-10-18T18:29:59.999Z');
 
 const isAfterDeadline = (deadline) => Date.now() > deadline.getTime();
