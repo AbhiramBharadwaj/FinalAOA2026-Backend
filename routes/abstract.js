@@ -17,8 +17,8 @@ import { sendErrorResponse } from '../utils/httpError.js';
 
 const router = express.Router();
 
-const ABSTRACT_SUBMISSION_DEADLINE = new Date('2026-10-15T18:29:59.999Z');
-const FINAL_POSTER_SUBMISSION_DEADLINE = new Date('2026-10-18T18:29:59.999Z');
+const ABSTRACT_SUBMISSION_DEADLINE = new Date('2026-10-18T18:29:59.999Z');
+const FINAL_POSTER_SUBMISSION_DEADLINE = new Date('2026-10-25T18:29:59.999Z');
 
 const isAfterDeadline = (deadline) => Date.now() > deadline.getTime();
 
@@ -188,7 +188,7 @@ router.post(
   requireProfileComplete,
   requireSubmissionWindowOpen(
     ABSTRACT_SUBMISSION_DEADLINE,
-    'Abstract submission is closed. The last date for abstract submission was 15th October 2026.'
+    'Abstract submission is closed. The last date for abstract submission was 18th October 2026.'
   ),
   handleAbstractUpload,
   async (req, res) => {
@@ -365,7 +365,7 @@ router.post(
   requireProfileComplete,
   requireSubmissionWindowOpen(
     FINAL_POSTER_SUBMISSION_DEADLINE,
-    'Final e-poster upload is closed. The last date for e-poster submission was 18th October 2026.'
+    'Final e-poster upload is closed. The last date for e-poster submission was 25th October 2026.'
   ),
   requireApprovedAbstractForPoster,
   handleFinalPosterUpload,

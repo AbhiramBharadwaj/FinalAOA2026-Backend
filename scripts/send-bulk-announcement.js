@@ -217,7 +217,7 @@ const getTextBody = (name, template) => {
     'Judging criteria: Scientific accuracy, technical quality, and creativity.',
     'Recognition: The best two videos will be recognised and showcased during the main conference.',
     '',
-    'Last date for abstract/video submission: 15th October 2026',
+    'Final deadline for abstract submission: 18th October 2026; video submission deadline: 15th October 2026',
     'Conference dates: 30th October - 1st November 2026',
     'Website: http://www.aoacon2026.com/',
     '',
@@ -270,7 +270,7 @@ const getHtmlBody = (name, template) => {
       Recognition: The best two videos will be recognised and showcased during the main conference.
     </p>
     <p>
-      Last date for abstract/video submission: 15th October 2026<br />
+      Final deadline for abstract submission: 18th October 2026; video submission deadline: 15th October 2026<br />
       Conference dates: 30th October - 1st November 2026<br />
       Website: <a href="http://www.aoacon2026.com/">www.aoacon2026.com</a>
     </p>

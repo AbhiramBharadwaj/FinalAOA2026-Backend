@@ -509,7 +509,7 @@ export const sendAbstractReviewEmail = async (abstract) => {
     },
     APPROVED: {
       label: 'Approved',
-      message: 'Congratulations again on your abstract acceptance. Please complete the final step by uploading your e-poster file from your dashboard before 18th October 2026. You may upload PDF, DOCX, PPT, or PPTX files.',
+      message: 'Congratulations again on your abstract acceptance. Please complete the final step by uploading your e-poster file from your dashboard by 25th October 2026, 11:59 PM IST. You may upload PDF, DOCX, PPT, or PPTX files.',
     },
     REJECTED: {
       label: 'Rejected',
@@ -531,7 +531,7 @@ export const sendAbstractReviewEmail = async (abstract) => {
     `Category: ${categoryLabel}`,
     abstract.reviewComments ? `Comments: ${abstract.reviewComments}` : null,
     '',
-    status === 'APPROVED' ? 'Final e-poster deadline: 18th October 2026.' : null,
+    status === 'APPROVED' ? 'Final e-poster deadline: 25th October 2026, 11:59 PM IST.' : null,
     '',
     'Thanks,',
     'AOACON 2026 Team',
@@ -553,7 +553,7 @@ export const sendAbstractReviewEmail = async (abstract) => {
     </div>
     ${
       status === 'APPROVED'
-        ? '<p style="margin:0 0 10px;">Congratulations again on your abstract acceptance. Please complete the final step by uploading your e-poster file from your dashboard before 18th October 2026. You may upload PDF, DOCX, PPT, or PPTX files.</p>'
+        ? '<p style="margin:0 0 10px;">Congratulations again on your abstract acceptance. Please complete the final step by uploading your e-poster file from your dashboard by 25th October 2026, 11:59 PM IST. You may upload PDF, DOCX, PPT, or PPTX files.</p>'
         : ''
     }
     <p style="margin:0;">You can view your abstract status in the dashboard.</p>
