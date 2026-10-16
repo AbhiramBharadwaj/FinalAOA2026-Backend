@@ -3,15 +3,23 @@ import assert from 'node:assert/strict';
 
 import { calculateRegistrationTotals, getAddOnPricing, getBookingPhase } from '../utils/pricing.js';
 
-test('early-bird pricing remains active through October 15, 2026', () => {
+test('early-bird pricing remains active through October 25, 2026 in India', () => {
   assert.equal(
-    getBookingPhase(new Date(2026, 9, 15, 23, 59, 59, 999)),
+    getBookingPhase(new Date('2026-10-25T23:59:59.999+05:30')),
     'EARLY_BIRD',
   );
 });
 
-test('spot pricing starts on October 16, 2026', () => {
-  assert.equal(getBookingPhase(new Date(2026, 9, 16)), 'SPOT');
+test('spot pricing starts on October 26, 2026 at midnight in India', () => {
+  assert.equal(getBookingPhase(new Date('2026-10-26T00:00:00+05:30')), 'SPOT');
+});
+
+test('October 16 new registrations continue to receive early-bird prices', () => {
+  const phase = getBookingPhase(new Date('2026-10-16T12:00:00+05:30'));
+  assert.equal(phase, 'EARLY_BIRD');
+  for (const [role, expectedPrice] of [['AOA', 8000], ['NON_AOA', 11000], ['PGS', 7000]]) {
+    assert.equal(calculateRegistrationTotals(role, phase).basePrice, expectedPrice);
+  }
 });
 
 test('early-bird pricing remains unchanged after combo offer is closed', () => {
