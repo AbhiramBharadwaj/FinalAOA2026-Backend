@@ -13,7 +13,8 @@
     "email:announcement": "node scripts/send-announcement-email.js",
     "email:announcement:bulk": "node scripts/send-bulk-announcement.js",
     "faculty-cv:sync": "node scripts/sync-faculty-cvs-from-sheet.js",
-    "offline-list:export": "node scripts/export-offline-list-xlsx.js"
+    "offline-list:export": "node scripts/export-offline-list-xlsx.js",
+    "sheets:sync": "node scripts/sync-registration-sheets.js"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1132.0",

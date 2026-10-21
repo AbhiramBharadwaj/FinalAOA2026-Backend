@@ -187,6 +187,11 @@ const registrationSchema = new mongoose.Schema(
     paymentEmailSentAt: {
       type: Date,
     },
+    invitationEmailSendingAt: Date,
+    invitationEmailSentAt: Date,
+    invitationEmailMessageId: String,
+    invitationEmailProvider: String,
+    invitationEmailError: String,
     paymentEmailSendingAt: {
       type: Date,
     },

@@ -24,11 +24,11 @@ const userSchema = new mongoose.Schema({
   },
   phone: {
     type: String,
-    required: true,
-    unique: true, 
+    required: function () { return !this.isGuestFaculty; },
     trim: true,
     match: [/^[\d\s-()]{10,15}$/, 'Please enter valid phone number']
   },
+  isGuestFaculty: { type: Boolean, default: false },
   password: {
     type: String,
     required: true,
@@ -131,6 +131,12 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
+
+// Missing faculty phone numbers must not occupy the unique phone index.
+userSchema.index({ phone: 1 }, {
+  name: 'phone_present_unique', unique: true,
+  partialFilterExpression: { phone: { $type: 'string' } },
+});
 
 userSchema.pre('save', async function(next) {
   if (!this.isModified('password')) return next();
