@@ -34,7 +34,6 @@ jobs:
           node --input-type=module <<'NODE'
           import dotenv from 'dotenv';
           const config = dotenv.parse(process.env.PROD_ENV_FILE || '');
-          if (!config.MONGODB_URI) throw new Error('Production MONGODB_URI is missing; no sync performed');
           Object.assign(process.env, config);
           delete process.env.PROD_ENV_FILE;
           await import('./scripts/sync-faculty-cvs-from-sheet.js');
