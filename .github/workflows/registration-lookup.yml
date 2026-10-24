@@ -1,0 +1,53 @@
+name: Read-only requested registration lookup
+on:
+  push:
+    branches: ["ops/registration-lookup-20261024"]
+    paths: [".github/workflows/registration-lookup.yml"]
+permissions:
+  contents: read
+jobs:
+  lookup:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: registration-lookup-task
+      - name: Install dependencies
+        working-directory: registration-lookup-task
+        env:
+          NODE_OPTIONS: --max-old-space-size=256
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund --maxsockets=1
+      - name: Read matching registrations and encrypt results
+        working-directory: registration-lookup-task
+        env:
+          PROD_ENV_FILE: ${{ secrets.PROD_ENV_FILE }}
+        run: |
+          node --input-type=module <<'NODE'
+          import mongoose from 'mongoose';
+          import dotenv from 'dotenv';
+          import fs from 'node:fs';
+          import crypto from 'node:crypto';
+          import User from './models/User.js';
+          import Registration from './models/Registration.js';
+          import FacultyCv from './models/FacultyCv.js';
+          const config = dotenv.parse(process.env.PROD_ENV_FILE || '');
+          const source = fs.readFileSync('scripts/sync-faculty-cvs-from-sheet.js', 'utf8');
+          const fallback = source.match(/mongodb(?:\+srv)?:\/\/[^\s'"]+/)?.[0];
+          try {
+            await mongoose.connect(config.MONGODB_URI || fallback, {serverSelectionTimeoutMS: 20000});
+            const terms = ['bhavani','kodali','ashok','lawrence','ramkumar','ram kumar','venkat','ravindra','swetha','shwetha','mogal','maya','bhalerao','shilpi','misra','mishra','chan','tarika','parimal','rajeshwari','rajeswari','subraman','chakrav','raghav','karunak','ramasw','shivakum','sivakum','ravishankar','ravi shankar','biric','gurud','gurudutt','sudhe','kannan'];
+            const match = n => terms.some(t => String(n || '').toLowerCase().includes(t));
+            const users = (await User.find({}).select('name isGuestFaculty').lean()).filter(u => match(u.name));
+            const ids = users.map(u => u._id);
+            const registrations = await Registration.find({userId: {$in: ids}}).select('userId registrationNumber paymentStatus totalPaid totalAmount registrationType').lean();
+            const faculty = (await FacultyCv.find({}).select('name isActive cvStatus').lean()).filter(f => match(f.name));
+            const result = {users: users.map(u => ({name: u.name, guestFaculty: !!u.isGuestFaculty, registrations: registrations.filter(r => String(r.userId) === String(u._id)).map(({_id,userId,...rest}) => rest)})), faculty: faculty.map(({_id,...rest})=>rest)};
+            const key = crypto.randomBytes(32), iv = crypto.randomBytes(12);
+            const cipher = crypto.createCipheriv('aes-256-gcm', key, iv);
+            const data = Buffer.concat([cipher.update(JSON.stringify(result)),cipher.final()]);
+            const sealedKey = crypto.publicEncrypt({key:"-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAuNPYppTMc2dJftrpZM0p\nv9LWUNSqq7i5eMNAIcOI2PlI6zECOMzp4zmQeUaYD+LJDyWz+awOupZ1Fe3MmH24\n4BnXnrL+AArDmMueOAA6zjdnSmfUaNCm5PYe54A0jvmf5pfrXQbdZvw+aMOjrnXm\n8m7u69+TDRAEXhvhow+rfDYNLcNwFSHrmajKQhK2/nhNrptZGyBXGeoLxUN1rIfZ\nw4QYbpare+nMCkSn5qYbDo8FI0lVIF1eWKDBDAWzkTpYFjcUkbU3thGJg3/L0Rwk\nHZuCV6DtbKXOUkfeOaCzSebFmkspz9JdQmqAv/20llfe0RvPg0MFy1mt1ftvxQKT\ncQIDAQAB\n-----END PUBLIC KEY-----",oaepHash:'sha256'},key);
+            console.log('SEALED_REPORT:' + Buffer.from(JSON.stringify({key:sealedKey.toString('base64'),iv:iv.toString('base64'),tag:cipher.getAuthTag().toString('base64'),data:data.toString('base64')})).toString('base64'));
+          } catch (e) { console.error('Lookup failed:',e.name, e.code || ''); process.exitCode=1; }
+          finally { await mongoose.disconnect(); }
+          NODE
