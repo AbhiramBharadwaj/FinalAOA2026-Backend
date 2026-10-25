@@ -42,6 +42,10 @@ The Sheets REST API does not insert embedded image blobs. A small Google Apps Sc
 
 If your Workspace administrator does not permit “Anyone” web app access, stop here; this deployment method needs an alternative authentication setup. Do not change organization policy for this script.
 
+## Upgrade the helper for incremental updates
+
+Replace the Apps Script `Code.gs` contents with the updated `scripts/google-apps-script/RegistrationSync.gs`, then choose **Deploy → Manage deployments → Edit → New version → Deploy**. Keep the existing URL and signing key. Update both the helper and terminal script before running `--apply`.
+
 ## Every update
 
 Preview counts without changing Google Sheets or needing Google authorization:
@@ -62,13 +66,13 @@ Equivalent command:
 npm run sheets:sync -- --apply
 ```
 
-Run whenever new registrations or changed details need to appear. Keep the terminal open until it reports all six tabs and QR images verified. Images upload in batches of 25, so a full update can take several minutes. It does not send emails or write to the conference database.
+Run whenever new registrations or changed details need to appear. Keep the terminal open until it reports all six tabs and QR images verified. Only missing or changed QR images upload, in batches of 25. The first update after upgrading the helper replaces existing images once to record their payload fingerprints; subsequent runs retain unchanged images. It does not send emails or write to the conference database.
 
 ## Refresh behavior
 
-- The six named tabs are generated reports. Their managed columns are replaced each run; stale rows are cleared. Keep personal notes in a separate tab. Unrelated tabs and columns outside the report are not overwritten.
+- The six named tabs are generated reports. Only changed cells in their managed columns are written; stale rows are cleared. Keep personal notes in a separate tab. Unrelated tabs and columns outside the report are not overwritten.
 - Existing tab IDs, including the master tab link, remain the same. Missing candidate tabs are created once, not duplicated each run.
-- Existing master QR images are removed and recreated at the correct candidate rows. The existing attendance QR payload is used; missing QR records are reported as Missing and no invented entry code is created.
+- Existing master QR images are matched by registration ID and a SHA-256 fingerprint of the QR payload. Unchanged images are retained and moved if candidate rows shift; missing or changed images are uploaded, and obsolete or duplicate images are removed. The existing attendance QR payload is used; missing QR records are reported as Missing and no invented entry code is created.
 - All existing images on Offline List are considered generated QR images. Do not place logos or unrelated pictures on that tab.
 - Before updating, previous cell values are backed up in `.local/sheet-backup-*.json`. This is a values backup, not a full image/format backup; use Google Sheets version history to restore the complete workbook if needed.
 - After updating, the script reads back every report cell and checks every QR image's registration ID and anchor row. Scannability/visual fit still requires checking the first live run in Google Sheets.
@@ -87,3 +91,58 @@ Run whenever new registrations or changed details need to appear. Keep the termi
 Google references:
 - https://developers.google.com/apps-script/guides/web
 - https://developers.google.com/apps-script/reference/spreadsheet/sheet#insertImage(BlobSource,Integer,Integer)
+
+## Hourly sync on the production server
+
+The existing self-hosted Ubuntu deployment can install a cron job that runs at
+minute zero of every hour. The Mac and terminal can be off. The server and its
+cron service must stay running, with outbound access to MongoDB and Google.
+
+1. In the GitHub repository, open **Settings → Secrets and variables → Actions**.
+   Add a repository secret named `REGISTRATION_SHEET_SYNC_CONFIG`. Its value is
+   the complete contents of the working local `.local/registration-sheet-sync.json`
+   file (the existing `url` and `secret` fields). Copy it directly into GitHub;
+   do not paste it into chat or commit it. Preserve the existing `PROD_ENV_FILE`
+   and its MongoDB configuration.
+2. Deploy these changes through the existing push-to-`master` workflow. The job
+   saves the configuration with owner-only permissions outside the checkout,
+   then installs the cron entry for the runner's Linux account. Installing it
+   does not immediately start a sync. If the secret is absent, setup is skipped.
+3. On the server, check `crontab -l` and confirm cron is running. Required commands:
+   `node`, `bash`, `crontab` and `flock` (usually supplied by cron and util-linux
+   on Ubuntu). Node must support the existing script's built-in fetch API.
+4. To test immediately from the deployed backend directory, run:
+
+   ```sh
+   bash scripts/server/run-registration-sheet-sync.sh
+   ```
+
+Daily logs are in `/home/ubuntu/aoa-data/registration-sheet-sync/logs/` and are
+retained for approximately 30 days. They include start/end times, skipped runs,
+progress and failures. A failed sync is attempted again at the next hourly run;
+there are no immediate retries. Logs do not send failure alerts.
+
+The wrapper uses an OS file lock, released automatically when the process exits.
+If an hourly run is still active, the next one skips it rather than interrupting
+it. Use the wrapper for manual server runs too. Direct runs from a Mac are still
+subject to the Google helper's shared 15-minute session protection; avoid running
+them during a scheduled sync. Interrupted Google sessions expire before the next
+hourly attempt.
+
+The MongoDB settings are read from the backend `.env` generated by deployment;
+PM2's process environment is not inherited by cron. Ensure `PROD_ENV_FILE` includes
+the correct MongoDB connection setting and the server IP is allowed by MongoDB.
+The current updated Google Apps Script deployment is also required.
+
+For another Linux host, provision the same private `config.json` under a persistent
+directory and run `bash scripts/server/install-registration-sheet-cron.sh` as the
+backend account. Set `REGISTRATION_SHEET_SYNC_STATE_DIR` to change that directory.
+The installer captures the absolute Node path and preserves unrelated cron jobs.
+Reinstall after changing Node installations or the backend checkout path.
+
+To disable, run `crontab -e` on the server and remove the line ending in
+`# aoa-registration-sheet-sync`; remove the GitHub secret as well to prevent
+future deployments from reinstalling it. Removing the secret alone does not
+remove an already installed job. This stops future runs; an active run finishes.
+Cell backups continue to use the backend's ignored `.local/sheet-backup-*.json`
+files; monitor disk space and archive old backups as needed.

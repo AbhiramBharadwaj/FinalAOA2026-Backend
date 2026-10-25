@@ -6,7 +6,7 @@ import mongoose from 'mongoose';
 import Registration from '../models/Registration.js';
 import User from '../models/User.js';
 import Attendance from '../models/Attendance.js';
-import { createHmac, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomBytes } from 'node:crypto';
 import QRCode from 'qrcode';
 
 const root = fileURLToPath(new URL('../', import.meta.url));
@@ -44,7 +44,7 @@ export function buildTabs(registrations, attendances) {
   });
   return [{ title: 'Offline List', values: [masterHeaders, ...master] }, ...tracks.map(t => ({ title: t.title, values: [candidateHeaders, ...paid.filter(r => t.course ? isCourse(r) : t.keys.includes(r.selectedWorkshop)).map(candidate)] }))];
 }
-const configFile = path.join(root, '.local', 'registration-sheet-sync.json');
+const configFile = process.env.REGISTRATION_SHEET_SYNC_CONFIG || path.join(root, '.local', 'registration-sheet-sync.json');
 export function signRequest(secret, request) {
   const payload = JSON.stringify({ ...request, timestamp: Date.now() });
   return { payload, signature: createHmac('sha256', secret).update(payload).digest('base64') };
@@ -107,24 +107,30 @@ async function main() {
       return result;
     } finally { clearInterval(heartbeat); }
   };
-  // Generate all images before touching the sheet. PNG data never goes to an external QR service.
-  const images = [];
-  console.log('Generating QR images locally…');
-  for (let i = 1; i < tabs[0].values.length; i++) {
-    const row = tabs[0].values[i];
-    if (!row[1]) continue;
-    const png = await QRCode.toBuffer(row[1], { width: 200, margin: 2, color: { dark: '#0d47a1', light: '#ffffff' } });
-    images.push({ row: i + 1, registrationNumber: row[0], png: png.toString('base64') });
-  }
+  const qrItems = tabs[0].values.slice(1).flatMap((row, i) => row[1] ? [{
+    row: i + 2, registrationNumber: row[0],
+    hash: createHash('sha256').update(row[1]).digest('hex'), data: row[1],
+  }] : []);
   console.log('Backing up current spreadsheet values…');
   const snapshot = await call({ action: 'snapshot' });
+  if (!snapshot.incrementalQr) throw new Error('Redeploy the updated RegistrationSync.gs helper before syncing. No spreadsheet changes made.');
+  await fs.mkdir(path.join(root, '.local'), { recursive: true, mode: 0o700 });
   const backupFile = path.join(root, '.local', `sheet-backup-${Date.now()}.json`);
   await fs.writeFile(backupFile, JSON.stringify(snapshot, null, 2), { mode: 0o600 });
   const runId = randomBytes(16).toString('hex');
   const googleTabs = tabs.map((tab, index) => index ? tab : { ...tab, values: tab.values.map((row, i) => { const copy = [...row]; copy[1] = i ? '' : 'QR Code'; return copy; }) });
-  console.log('Refreshing six tabs and removing old QR images. This initial Google step can take several minutes…');
-  await call({ action: 'replace', tabs: googleTabs, runId });
-  console.log('Tab data refreshed. Uploading QR images in batches of 25…');
+  console.log('Updating changed cells and reconciling existing QR images…');
+  const updated = await call({ action: 'replace', tabs: googleTabs, runId,
+    qrItems: qrItems.map(({ data, ...item }) => item) });
+  if (!Array.isArray(updated.neededImages)) throw new Error('Redeploy the updated RegistrationSync.gs helper before syncing.');
+  const needed = new Set(updated.neededImages);
+  const images = [];
+  for (const item of qrItems.filter(item => needed.has(item.registrationNumber))) {
+    const { data, ...metadata } = item;
+    const png = await QRCode.toBuffer(data, { width: 200, margin: 2, color: { dark: '#0d47a1', light: '#ffffff' } });
+    images.push({ ...metadata, png: png.toString('base64') });
+  }
+  console.log(`${qrItems.length - images.length} QR images retained; ${images.length} require upload.`);
   for (let i = 0; i < images.length; i += 25) {
     await call({ action: 'images', images: images.slice(i, i + 25), runId });
     console.log(`QR images: ${Math.min(i + 25, images.length)}/${images.length}`);
@@ -136,8 +142,8 @@ async function main() {
     const normalize = rows => rows?.map(row => row.map(value => typeof value === 'string' && /^'[=+\-@]/.test(value) ? value.slice(1) : value));
     if (JSON.stringify(normalize(actual)) !== JSON.stringify(normalize(googleTabs[i].values))) throw new Error(`Readback mismatch: ${googleTabs[i].title}. Inspect the sheet.`);
   }
-  const expected = new Set(images.map(i => `${i.registrationNumber}:${i.row}`));
-  if (verified.images.length !== images.length || verified.images.some(i => !expected.has(`${i.registrationNumber}:${i.row}`))) throw new Error('QR image verification failed. Rerun the complete sync after 15 minutes.');
-  console.log(`Updated and verified all six tabs and ${images.length} QR images.\n${verified.url}\nPrevious cell values saved: ${backupFile}`);
+  const expected = new Set(qrItems.map(i => `${i.registrationNumber}:${i.row}`));
+  if (verified.images.length !== qrItems.length || verified.images.some(i => !expected.has(`${i.registrationNumber}:${i.row}`))) throw new Error('QR image verification failed. Rerun the complete sync after 15 minutes.');
+  console.log(`Updated and verified all six tabs and ${qrItems.length} QR images (${images.length} uploaded).\n${verified.url}\nPrevious cell values saved: ${backupFile}`);
 }
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch(error => { console.error(error.message); process.exitCode = 1; });

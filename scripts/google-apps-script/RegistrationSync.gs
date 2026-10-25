@@ -22,7 +22,7 @@ function doPost(e) {
     lock.waitLock(30000);
     const book = SpreadsheetApp.openById(TARGET_ID);
     if (request.action === 'snapshot') {
-      return output_({ ok: true, tabs: TAB_NAMES.map(name => { const sheet = book.getSheetByName(name); return { title: name, values: sheet ? sheet.getDataRange().getValues() : [] }; }) });
+      return output_({ ok: true, incrementalQr: true, tabs: TAB_NAMES.map(name => { const sheet = book.getSheetByName(name); return { title: name, values: sheet ? sheet.getDataRange().getValues() : [] }; }) });
     }
     if (request.action === 'replace') {
       if (!Array.isArray(request.tabs) || request.tabs.length !== 6 || !/^[a-f0-9]{32}$/.test(request.runId || '')) throw new Error('Invalid sync data');
@@ -31,10 +31,16 @@ function doPost(e) {
         const width = index === 0 ? 14 : 9;
         if (tab.title !== TAB_NAMES[index] || !Array.isArray(tab.values) || !tab.values.length || tab.values.length > 20000 || tab.values.some(row => !Array.isArray(row) || row.length !== width || row.some(v => typeof v !== 'string' && typeof v !== 'number'))) throw new Error('Invalid table structure');
       });
+      if (!Array.isArray(request.qrItems) || request.qrItems.some(item =>
+        !Number.isInteger(item.row) || item.row < 2 ||
+        request.tabs[0].values[item.row - 1]?.[0] !== item.registrationNumber ||
+        !/^[a-f0-9]{64}$/.test(item.hash || '')) ||
+        new Set(request.qrItems.map(item => item.registrationNumber)).size !== request.qrItems.length) throw new Error('Invalid QR manifest; update the terminal script and helper together');
       const active = properties.getProperty('SYNC_RUN');
       const last = Number(properties.getProperty('SYNC_TIME') || 0);
       if (active && Date.now() - last < 900000 && active !== request.runId) throw new Error('Another sync is active. Wait 15 minutes if its terminal was interrupted.');
       properties.setProperties({ SYNC_RUN: request.runId, SYNC_TIME: String(Date.now()), SYNC_ROWS: JSON.stringify(request.tabs.map(tab => tab.values.length)), SYNC_LAST_QR_ROW: '1' });
+      let neededImages = [];
       request.tabs.forEach((tab, index) => {
         let sheet = book.getSheetByName(tab.title);
         const created = !sheet;
@@ -42,12 +48,25 @@ function doPost(e) {
         const width = index === 0 ? 14 : 9;
         if (sheet.getMaxRows() < tab.values.length) sheet.insertRowsAfter(sheet.getMaxRows(), tab.values.length - sheet.getMaxRows());
         if (sheet.getMaxColumns() < width) sheet.insertColumnsAfter(sheet.getMaxColumns(), width - sheet.getMaxColumns());
-        if (index === 0) sheet.getImages().forEach(image => image.remove());
-        // These columns are a generated report; refresh removes obsolete rows.
-        sheet.getRange(1, 1, Math.max(sheet.getLastRow(), tab.values.length), width).clearContent();
+        if (index === 0) neededImages = reconcileImages_(sheet, request.qrItems);
+        // Compare managed cells, including stale rows, without clearing unchanged data.
+        const height = Math.max(sheet.getLastRow(), tab.values.length);
+        const existing = sheet.getRange(1, 1, height, width).getValues();
         const values = tab.values.map(row => row.map(v => typeof v === 'string' && /^[=+\-@]/.test(v) ? "'" + v : v));
         const range = sheet.getRange(1, 1, values.length, width);
-        range.setNumberFormat('@').setValues(values).setWrap(true).setVerticalAlignment('middle');
+        for (let r = 0; r < height; r++) {
+          const desired = values[r] || Array(width).fill('');
+          let start = -1;
+          for (let c = 0; c <= width; c++) {
+            const changed = c < width && normalizeCell_(existing[r][c]) !== normalizeCell_(desired[c]);
+            if (changed && start < 0) start = c;
+            if (!changed && start >= 0) {
+              sheet.getRange(r + 1, start + 1, 1, c - start).setNumberFormat('@').setValues([desired.slice(start, c)]);
+              start = -1;
+            }
+          }
+        }
+        range.setWrap(true).setVerticalAlignment('middle');
         if (index === 0 && values.length > 1) {
           sheet.getRange(2, 9, values.length - 1, 1).setNumberFormat('₹#,##0');
           sheet.getRange(2, 13, values.length - 1, 1).setNumberFormat('0');
@@ -63,7 +82,7 @@ function doPost(e) {
         range.createFilter();
       });
       SpreadsheetApp.flush();
-      return output_({ ok: true, counts: request.tabs.map(tab => ({ title: tab.title, count: tab.values.length - 1 })) });
+      return output_({ ok: true, neededImages, counts: request.tabs.map(tab => ({ title: tab.title, count: tab.values.length - 1 })) });
     }
     if (request.runId !== properties.getProperty('SYNC_RUN')) throw new Error('Sync session is no longer active. Start a new complete sync.');
     properties.setProperty('SYNC_TIME', String(Date.now()));
@@ -77,7 +96,7 @@ function doPost(e) {
       request.images.forEach(item => {
         if (item.row <= lastRow) throw new Error('QR batch was already attempted. Restart the complete sync after the session expires.');
         const blob = Utilities.newBlob(Utilities.base64Decode(item.png), 'image/png', item.registrationNumber + '.png');
-        sheet.insertImage(blob, 2, item.row, 6, 4).setWidth(100).setHeight(100).setAltTextTitle(item.registrationNumber);
+        sheet.insertImage(blob, 2, item.row, 6, 4).setWidth(100).setHeight(100).setAltTextTitle(item.registrationNumber).setAltTextDescription(item.hash);
         lastRow = item.row;
         properties.setProperty('SYNC_LAST_QR_ROW', String(lastRow));
       });
@@ -98,4 +117,26 @@ function doPost(e) {
     throw new Error('Unknown action');
   } catch (error) { return output_({ ok: false, error: error.message }); }
   finally { if (lock && lock.hasLock()) lock.releaseLock(); }
+}
+
+function normalizeCell_(value) {
+  return typeof value === 'string' && /^'[=+\-@]/.test(value) ? value.slice(1) : value;
+}
+function reconcileImages_(sheet, items) {
+  const wanted = new Map(items.map(item => [item.registrationNumber, item]));
+  const retained = new Set();
+  sheet.getImages().forEach(image => {
+    const id = image.getAltTextTitle();
+    const item = wanted.get(id);
+    if (!item || retained.has(id) || image.getAltTextDescription() !== item.hash) {
+      image.remove();
+      return;
+    }
+    const anchor = image.getAnchorCell();
+    if (anchor.getRow() !== item.row || anchor.getColumn() !== 2) {
+      image.setAnchorCell(sheet.getRange(item.row, 2)).setAnchorCellXOffset(6).setAnchorCellYOffset(4);
+    }
+    retained.add(id);
+  });
+  return items.filter(item => !retained.has(item.registrationNumber)).map(item => item.registrationNumber);
 }

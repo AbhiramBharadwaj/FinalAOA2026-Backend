@@ -38,3 +38,20 @@ jobs:
     - name: Start or Restart Application
       run: |
         pm2 restart aoa-backend --update-env || pm2 start server.js --name "aoa-backend"
+
+    - name: Configure hourly registration sheet sync
+      env:
+        SHEET_SYNC_CONFIG: ${{ secrets.REGISTRATION_SHEET_SYNC_CONFIG }}
+      run: |
+        if [ -z "$SHEET_SYNC_CONFIG" ]; then
+          echo "Hourly sheet sync setup skipped: REGISTRATION_SHEET_SYNC_CONFIG secret is not set."
+          exit 0
+        fi
+        umask 077
+        mkdir -p /home/ubuntu/aoa-data/registration-sheet-sync
+        printf '%s' "$SHEET_SYNC_CONFIG" > /home/ubuntu/aoa-data/registration-sheet-sync/config.json
+        chmod 600 /home/ubuntu/aoa-data/registration-sheet-sync/config.json
+        node scripts/sync-registration-sheets.js
+        systemctl is-active --quiet cron
+        bash scripts/server/install-registration-sheet-cron.sh
+        crontab -l | sed -n '/# aoa-registration-sheet-sync$/p'
