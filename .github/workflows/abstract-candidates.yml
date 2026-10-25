@@ -1,0 +1,55 @@
+name: Requested abstract candidate lookup
+on:
+  push:
+    branches: ["ops/email-access-check-20261025"]
+    paths: [".github/workflows/abstract-candidates.yml"]
+permissions:
+  contents: read
+jobs:
+  lookup:
+    runs-on: self-hosted
+    timeout-minutes: 3
+    steps:
+      - name: Read abstract candidates and report counts only
+        run: |
+          node <<'NODE'
+          const {execFileSync}=require('node:child_process');
+          const fs=require('node:fs'),path=require('node:path');
+          (async()=>{
+            const app=JSON.parse(execFileSync('pm2',['jlist'],{encoding:'utf8'})).find(a=>a.name==='aoa-backend');
+            if(!app)throw new Error('Backend unavailable');
+            const cwd=app.pm2_env.pm_cwd;
+            const dotenv=require(require.resolve('dotenv',{paths:[cwd]}));
+            const config=dotenv.parse(fs.readFileSync(path.join(cwd,'.env')));
+            const runtime={...config,...app.pm2_env.env,...app.pm2_env};
+            const source=fs.readFileSync(path.join(cwd,'server.js'),'utf8');
+            const uri=runtime.MONGODB_URI || source.match(/mongodb(?:\+srv)?:\/\/[^\s'"]+/)?.[0];
+            const mongoose=require(require.resolve('mongoose',{paths:[cwd]}));
+            try {
+              await mongoose.connect(uri,{serverSelectionTimeoutMS:15000});
+              const db=mongoose.connection.db;
+              const abstracts=await db.collection('abstracts').find({},{projection:{userId:1,submissionNumber:1,status:1,finalPosterStatus:1,finalPosterPath:1,title:1}}).toArray();
+              const users=await db.collection('users').find({_id:{$in:abstracts.map(a=>a.userId)}},{projection:{name:1,email:1}}).toArray();
+              const byId=new Map(users.map(u=>[String(u._id),u]));
+              const recipients=new Map(),statuses={},posterStatuses={};
+              let missingEmail=0,invalidEmail=0;
+              for(const a of abstracts){
+                statuses[a.status||'UNSET']=(statuses[a.status||'UNSET']||0)+1;
+                if(a.finalPosterPath)posterStatuses[a.finalPosterStatus||'UNSET']=(posterStatuses[a.finalPosterStatus||'UNSET']||0)+1;
+                const u=byId.get(String(a.userId));
+                const email=String(u?.email||'').trim().toLowerCase();
+                if(!email){missingEmail++;continue;}
+                if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){invalidEmail++;continue;}
+                const item=recipients.get(email)||{name:u.name,email,abstracts:[]};
+                item.abstracts.push({number:a.submissionNumber,status:a.status,title:a.title,posterUploaded:!!a.finalPosterPath});
+                recipients.set(email,item);
+              }
+              const list=[...recipients.values()];
+              const suspect=list.filter(r=>r.email==='abhirambharadwaj10@gmail.com'||r.abstracts.some(a=>/\b(sample|test|dummy)\b/i.test(a.title)));
+              const dir='/home/ubuntu/aoa-data/email-announcements';
+              fs.mkdirSync(dir,{recursive:true,mode:0o700});
+              fs.writeFileSync(path.join(dir,'abstract-candidates-20261025.json'),JSON.stringify({generatedAt:new Date().toISOString(),recipients:list}),{mode:0o600});
+              console.log('CANDIDATE_COUNTS',JSON.stringify({abstractSubmissions:abstracts.length,uniqueCandidates:list.length,statuses,uploadedPosters:Object.values(posterStatuses).reduce((a,b)=>a+b,0),posterStatuses,missingEmail,invalidEmail,potentialTestCandidates:suspect.map(r=>({name:r.name,submissionNumbers:r.abstracts.map(a=>a.number)})),approvedCandidates:list.filter(r=>r.abstracts.some(a=>a.status==='APPROVED')).length}));
+            }finally{await mongoose.disconnect();}
+          })().catch(e=>{console.error('Lookup failed',e.name);process.exitCode=1});
+          NODE
