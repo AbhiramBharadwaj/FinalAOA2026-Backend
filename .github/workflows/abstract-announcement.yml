@@ -1,0 +1,67 @@
+name: Approved announcement to all 163 abstract candidates
+on:
+  push:
+    branches: ["ops/email-access-check-20261025"]
+    paths: [".github/workflows/abstract-announcement.yml"]
+permissions:
+  contents: read
+concurrency:
+  group: abstract-presentation-announcement-20261025
+  cancel-in-progress: false
+jobs:
+  send:
+    runs-on: self-hosted
+    timeout-minutes: 10
+    steps:
+      - name: Send individual announcements with persistent duplicate protection
+        run: |
+          node <<'NODE'
+          const {execFileSync}=require('node:child_process');
+          const fs=require('node:fs'),path=require('node:path');
+          (async()=>{
+            const dir='/home/ubuntu/aoa-data/email-announcements';
+            const roster=JSON.parse(fs.readFileSync(path.join(dir,'abstract-candidates-20261025.json'))).recipients;
+            if(roster.length!==163 || new Set(roster.map(r=>r.email)).size!==163)throw new Error('Recipient count mismatch');
+            if(roster.some(r=>!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(r.email)))throw new Error('Invalid recipient');
+            const lock=path.join(dir,'presentation-31oct.lock');
+            const fd=fs.openSync(lock,'wx',0o600);
+            try {
+              const app=JSON.parse(execFileSync('pm2',['jlist'],{encoding:'utf8'})).find(a=>a.name==='aoa-backend');
+              if(!app)throw new Error('Backend unavailable');
+              const cwd=app.pm2_env.pm_cwd;
+              const config=require(require.resolve('dotenv',{paths:[cwd]})).parse(fs.readFileSync(path.join(cwd,'.env')));
+              const env={...config,...app.pm2_env.env,...app.pm2_env};
+              const key=env.ZOHO_CPAAS_API_KEY?.trim();
+              if(!key)throw new Error('Sending configuration unavailable');
+              if((env.ZOHO_FROM_EMAIL||'info@aoacon2026.com')!=='info@aoacon2026.com')throw new Error('Sender mismatch');
+              const statePath=path.join(dir,'presentation-31oct-delivery.json');
+              const state=fs.existsSync(statePath)?JSON.parse(fs.readFileSync(statePath)):{};
+              const save=()=>{fs.writeFileSync(statePath+'.tmp',JSON.stringify(state),{mode:0o600});fs.renameSync(statePath+'.tmp',statePath);};
+              const subject='AOACON 2026: E-Poster Presentations on Saturday, 31 October';
+              const text='Dear Participant,\n\nGreetings from AOACON 2026.\n\nPlease note that the final e-poster presentations are scheduled for Saturday, 31 October 2026, and not Friday, 30 October.\n\nIndividual time slots and session details will be shared soon. Please plan your participation accordingly.\n\nWarm regards,\nAOACON 2026 Organising Team';
+              const html='<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>AOACON 2026</h2><p>Dear Participant,</p><p>Greetings from AOACON 2026.</p><p>Please note that the final e-poster presentations are scheduled for <strong>Saturday, 31 October 2026</strong>, and <strong>not Friday, 30 October</strong>.</p><p>Individual time slots and session details will be shared soon. Please plan your participation accordingly.</p><p>Warm regards,<br>AOACON 2026 Organising Team</p></div>';
+              let attempted=0;
+              for(const recipient of roster){
+                if(state[recipient.email])continue;
+                state[recipient.email]={status:'attempting',at:new Date().toISOString()};save();
+                try {
+                  const response=await fetch(env.ZOHO_CPAAS_EMAIL_URL||'https://cpaas.zoho.in/v1.1/email',{
+                    method:'POST',signal:AbortSignal.timeout(15000),
+                    headers:{Authorization:key.startsWith('Zoho-enczapikey ')?key:'Zoho-enczapikey '+key,'Content-Type':'application/json',Accept:'application/json'},
+                    body:JSON.stringify({from:{address:'info@aoacon2026.com'},to:[{email_address:{address:recipient.email}}],subject,textbody:text,htmlbody:html})
+                  });
+                  const result=await response.json();
+                  const accepted=response.ok && result.data?.[0]?.code==='EM_104';
+                  const rejected=response.status>=400 && response.status<500 && response.status!==408 || response.ok && result.data?.[0]?.code && result.data[0].code!=='EM_104';
+                  state[recipient.email]={status:accepted?'accepted':rejected?'rejected':'unconfirmed',httpStatus:response.status,code:result.data?.[0]?.code,at:new Date().toISOString()};
+                }catch(e){state[recipient.email]={status:'unconfirmed',errorType:e.name,at:new Date().toISOString()};}
+                save();attempted++;
+                if(attempted%20===0)console.log('PROGRESS',attempted);
+                await new Promise(resolve=>setTimeout(resolve,600));
+              }
+              const counts={};for(const r of roster){const s=state[r.email]?.status||'not_attempted';counts[s]=(counts[s]||0)+1;}
+              console.log('ANNOUNCEMENT_RESULTS',JSON.stringify({recipients:roster.length,counts}));
+              if(counts.accepted!==163)process.exitCode=1;
+            }finally{fs.closeSync(fd);fs.unlinkSync(lock);}
+          })().catch(e=>{console.error('Announcement failed:',e.name);process.exitCode=1});
+          NODE
