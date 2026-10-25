@@ -36,6 +36,9 @@ jobs:
         printf '\nRAZORPAY_WEBHOOK_SECRET=%s\n' "$RAZORPAY_WEBHOOK_SECRET" >> .env
 
     - name: Start or Restart Application
+      env:
+        # Keep the backend outside the Actions runner's end-of-job process cleanup.
+        RUNNER_TRACKING_ID: ""
       run: |
         pm2 restart aoa-backend --update-env || pm2 start server.js --name "aoa-backend"
 
