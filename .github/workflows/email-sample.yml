@@ -27,14 +27,24 @@ jobs:
             require(require.resolve('dotenv',{paths:[cwd]})).config({path:path.join(cwd,'.env')});
             if((process.env.ZOHO_FROM_EMAIL || 'info@aoacon2026.com') !== 'info@aoacon2026.com') throw new Error('Unexpected Zoho sender');
             if(process.env.RESEND_FROM && !/info@aoacon2026\.com/i.test(process.env.RESEND_FROM)) throw new Error('Unexpected Resend sender');
-            const mongoose = require(require.resolve('mongoose',{paths:[cwd]}));
+            if (!process.env.ZOHO_CPAAS_API_KEY) throw new Error('Zoho sending key unavailable');
             try {
-              await mongoose.connect(process.env.MONGODB_URI,{serverSelectionTimeoutMS:15000});
-              const {sendEmail}=await import(pathToFileURL(path.join(cwd,'utils/email.js')).href);
+              // Send the single sample directly through Zoho; no database access.
+              const sendEmail = async ({to,subject,text,html}) => {
+                const key=process.env.ZOHO_CPAAS_API_KEY.trim();
+                const response=await fetch(process.env.ZOHO_CPAAS_EMAIL_URL || 'https://cpaas.zoho.in/v1.1/email',{
+                  method:'POST',signal:AbortSignal.timeout(15000),
+                  headers:{Authorization:key.startsWith('Zoho-enczapikey ')?key:'Zoho-enczapikey '+key,'Content-Type':'application/json',Accept:'application/json'},
+                  body:JSON.stringify({from:{address:'info@aoacon2026.com'},to:[{email_address:{address:to}}],subject,textbody:text,htmlbody:html})
+                });
+                const result=await response.json();
+                if(!response.ok || result.data?.[0]?.code!=='EM_104') throw new Error('Sample not confirmed');
+                return {provider:'zoho',accepted:true};
+              };
               const subject='[SAMPLE] AOACON 2026: E-Poster Presentations on Saturday, 31 October';
               const text='Dear Participant,\n\nGreetings from AOACON 2026.\n\nPlease note that the final e-poster presentations are scheduled for Saturday, 31 October 2026, and not Friday, 30 October.\n\nIndividual time slots and session details will be shared soon. Please plan your participation accordingly.\n\nWarm regards,\nAOACON 2026 Organising Team\n\nSample email for organiser review only.';
               const result=await sendEmail({to:'abhirambharadwaj10@gmail.com',subject,text,html:'<div style="font-family:Arial,sans-serif;line-height:1.6"><h2>AOACON 2026</h2><p>Dear Participant,</p><p>Greetings from AOACON 2026.</p><p>Please note that the final e-poster presentations are scheduled for <strong>Saturday, 31 October 2026</strong>, and <strong>not Friday, 30 October</strong>.</p><p>Individual time slots and session details will be shared soon. Please plan your participation accordingly.</p><p>Warm regards,<br>AOACON 2026 Organising Team</p><hr><p style="color:#666;font-size:12px">Sample email for organiser review only.</p></div>'});
               console.log('SAMPLE_ACCEPTED',JSON.stringify(result));
-            } finally { await mongoose.disconnect(); }
+            } finally { /* No database connection or website changes. */ }
           })().catch(e=>{console.error('Sample failed:',e.name);process.exitCode=1});
           NODE
