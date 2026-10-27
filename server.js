@@ -13,6 +13,7 @@ import paymentRoutes from './routes/payment.js';
 import attendanceRoutes from './routes/attendance.js';
 import healthRoutes from './routes/health.js';
 import facultyCvRoutes from './routes/facultyCv.js';
+import sharedRoutes from './routes/shared.js';
 import logger from './utils/logger.js';
 import { getUploadRoot } from './utils/uploadStorage.js';
 import { sendErrorResponse } from './utils/httpError.js';
@@ -62,6 +63,7 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/faculty-cv', facultyCvRoutes);
+app.use('/api/shared', sharedRoutes);
 
 mongoose.connect("mongodb+srv://bhaskarAntoty123:MQEJ1W9gtKD547hy@bhaskarantony.wagpkay.mongodb.net/AOA1?retryWrites=true&w=majority")
   .then(() => logger.info('MongoDB connected.'))

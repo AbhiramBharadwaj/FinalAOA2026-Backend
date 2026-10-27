@@ -35,6 +35,14 @@ jobs:
         EOF
         printf '\nRAZORPAY_WEBHOOK_SECRET=%s\n' "$RAZORPAY_WEBHOOK_SECRET" >> .env
 
+    - name: Load shared API credential
+      run: |
+        shared_key_file=/home/ubuntu/aoa-data/shared-read-api.env
+        if [ -f "$shared_key_file" ]; then
+          printf '\n' >> .env
+          cat "$shared_key_file" >> .env
+        fi
+
     - name: Start or Restart Application
       env:
         # Keep the backend outside the Actions runner's end-of-job process cleanup.
