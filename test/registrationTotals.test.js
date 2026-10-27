@@ -56,15 +56,15 @@ test('uses the configured workshop capacities', () => {
     'labour-analgesia': 50,
     'critical-incidents': 44,
     pocus: 43,
-    'maternal-collapse': 42,
+    'maternal-collapse': 49,
   });
 });
 
 test('marks workshops full based on their individual capacity', () => {
   assert.equal(isWorkshopFullForUser(43, 'critical-incidents'), false);
   assert.equal(isWorkshopFullForUser(44, 'critical-incidents'), true);
-  assert.equal(isWorkshopFullForUser(41, 'maternal-collapse'), false);
-  assert.equal(isWorkshopFullForUser(42, 'maternal-collapse'), true);
+  assert.equal(isWorkshopFullForUser(48, 'maternal-collapse'), false);
+  assert.equal(isWorkshopFullForUser(49, 'maternal-collapse'), true);
   assert.equal(isWorkshopFullForUser(49, 'labour-analgesia'), false);
   assert.equal(isWorkshopFullForUser(50, 'labour-analgesia'), true);
   assert.equal(isWorkshopFullForUser(41, 'pocus'), false);

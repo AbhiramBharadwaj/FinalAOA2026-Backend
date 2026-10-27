@@ -5,7 +5,7 @@ export const WORKSHOP_CAPACITIES = {
   'labour-analgesia': 50,
   'critical-incidents': 44,
   pocus: 43,
-  'maternal-collapse': 42,
+  'maternal-collapse': 49,
 };
 export const COUPON_ENABLED = true;
 export const COUPONS = {
