@@ -3,7 +3,7 @@ import { calculateRegistrationTotals } from './pricing.js';
 export const AOA_COURSE_CAPACITY = 60;
 export const WORKSHOP_CAPACITIES = {
   'labour-analgesia': 50,
-  'critical-incidents': 40,
+  'critical-incidents': 44,
   pocus: 43,
   'maternal-collapse': 42,
 };

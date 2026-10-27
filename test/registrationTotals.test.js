@@ -54,13 +54,15 @@ test('keeps a full AOA course available to users who already reserved a seat', (
 test('uses the configured workshop capacities', () => {
   assert.deepEqual(WORKSHOP_CAPACITIES, {
     'labour-analgesia': 50,
-    'critical-incidents': 40,
+    'critical-incidents': 44,
     pocus: 43,
     'maternal-collapse': 42,
   });
 });
 
 test('marks workshops full based on their individual capacity', () => {
+  assert.equal(isWorkshopFullForUser(43, 'critical-incidents'), false);
+  assert.equal(isWorkshopFullForUser(44, 'critical-incidents'), true);
   assert.equal(isWorkshopFullForUser(41, 'maternal-collapse'), false);
   assert.equal(isWorkshopFullForUser(42, 'maternal-collapse'), true);
   assert.equal(isWorkshopFullForUser(49, 'labour-analgesia'), false);
@@ -73,9 +75,9 @@ test('marks workshops full based on their individual capacity', () => {
 
 test('builds workshop availability details', () => {
   assert.deepEqual(buildWorkshopAvailability('critical-incidents', 35), {
-    capacity: 40,
+    capacity: 44,
     used: 35,
-    remaining: 5,
+    remaining: 9,
     full: false,
   });
 });
