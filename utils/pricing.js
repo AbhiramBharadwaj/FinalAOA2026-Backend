@@ -68,17 +68,17 @@ const getWorkshopTotalPrice = (userRole, bookingPhase) => {
     AOA: {
       EARLY_BIRD: 10000,
       REGULAR: 12000,
-      SPOT: 0, 
+      SPOT: 15000,
     },
     NON_AOA: {
       EARLY_BIRD: 13000,
       REGULAR: 15000,
-      SPOT: 0,
+      SPOT: 18000,
     },
     PGS: {
       EARLY_BIRD: 9000,
       REGULAR: 11000,
-      SPOT: 0,
+      SPOT: 14000,
     },
   };
 

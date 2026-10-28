@@ -14,6 +14,19 @@ test('spot pricing starts on October 26, 2026 at midnight in India', () => {
   assert.equal(getBookingPhase(new Date('2026-10-26T00:00:00+05:30')), 'SPOT');
 });
 
+test('spot workshop booking charges the approved 2000 add-on for every role', () => {
+  for (const [role, expectedBase] of [['AOA', 13000], ['NON_AOA', 16000], ['PGS', 12000]]) {
+    const quote = getAddOnPricing(role, 'SPOT');
+    const totals = calculateRegistrationTotals(role, 'SPOT', { addWorkshop: true });
+    assert.equal(quote.workshop.priceWithoutGST, 2000);
+    assert.equal(totals.basePrice, expectedBase);
+    assert.equal(totals.workshopAddOn, quote.workshop.priceWithoutGST);
+    assert.equal(totals.packageBase, expectedBase + 2000);
+    assert.equal(totals.gst, Math.round((expectedBase + 2000) * 0.18));
+    assert.equal(totals.totalAmount, totals.packageBase + totals.gst);
+  }
+});
+
 test('October 16 new registrations continue to receive early-bird prices', () => {
   const phase = getBookingPhase(new Date('2026-10-16T12:00:00+05:30'));
   assert.equal(phase, 'EARLY_BIRD');
