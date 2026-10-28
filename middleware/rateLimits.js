@@ -1,4 +1,5 @@
-import { rateLimit } from 'express-rate-limit';
+import { createHash } from 'node:crypto';
+import { rateLimit, ipKeyGenerator } from 'express-rate-limit';
 
 const positiveIntegerFromEnv = (name, fallback) => {
   const value = Number.parseInt(process.env[name], 10);
@@ -29,11 +30,27 @@ export const adminLoginLimiter = buildLimiter({
   message: 'Too many admin login attempts. Please wait 15 minutes and try again.',
 });
 
-export const passwordResetLimiter = buildLimiter({
-  windowMs: 60 * 60 * 1000,
-  limit: 3,
-  message: 'Too many password-reset requests. Please wait before trying again.',
+// Shared Wi-Fi must not make one attendee exhaust everyone else's reset allowance.
+const passwordResetIpLimiter = buildLimiter({
+  windowMs: 15 * 60 * 1000,
+  limit: 50,
+  message: 'Too many password-reset requests from this network. Please wait 15 minutes and try again.',
 });
+
+const passwordResetAccountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  limit: 5,
+  standardHeaders: 'draft-8',
+  legacyHeaders: false,
+  keyGenerator: (req) => {
+    const email = typeof req.body?.email === 'string' ? req.body.email.trim().toLowerCase() : '';
+    const account = createHash('sha256').update(email).digest('hex');
+    return `${ipKeyGenerator(req.ip)}:${req.path}:${account}`;
+  },
+  message: { message: 'Too many password-reset requests for this email. Please wait 15 minutes and try again.' },
+});
+
+export const passwordResetLimiter = [passwordResetIpLimiter, passwordResetAccountLimiter];
 
 export const facultyCvOtpLimiter = buildLimiter({
   windowMs: 15 * 60 * 1000,
