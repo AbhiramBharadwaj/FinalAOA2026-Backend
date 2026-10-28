@@ -2,8 +2,8 @@
  * Determine current booking phase based on date.
  */
 export const getBookingPhase = (now = new Date()) => {
-  // Early-bird registration runs through October 25 in India, regardless of server timezone.
-  const spotPricingStarts = new Date('2026-10-26T00:00:00+05:30');
+  // Early-bird registration runs through October 28 in India, regardless of server timezone.
+  const spotPricingStarts = new Date('2026-10-29T00:00:00+05:30');
 
   if (now < spotPricingStarts) return 'EARLY_BIRD';
   return 'SPOT';

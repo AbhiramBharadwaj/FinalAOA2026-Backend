@@ -3,15 +3,15 @@ import assert from 'node:assert/strict';
 
 import { calculateRegistrationTotals, getAddOnPricing, getBookingPhase } from '../utils/pricing.js';
 
-test('early-bird pricing remains active through October 25, 2026 in India', () => {
+test('early-bird pricing remains active through October 28, 2026 in India', () => {
   assert.equal(
-    getBookingPhase(new Date('2026-10-25T23:59:59.999+05:30')),
+    getBookingPhase(new Date('2026-10-28T23:59:59.999+05:30')),
     'EARLY_BIRD',
   );
 });
 
-test('spot pricing starts on October 26, 2026 at midnight in India', () => {
-  assert.equal(getBookingPhase(new Date('2026-10-26T00:00:00+05:30')), 'SPOT');
+test('spot pricing starts on October 29, 2026 at midnight in India', () => {
+  assert.equal(getBookingPhase(new Date('2026-10-29T00:00:00+05:30')), 'SPOT');
 });
 
 test('spot workshop booking charges the approved 2000 add-on for every role', () => {
