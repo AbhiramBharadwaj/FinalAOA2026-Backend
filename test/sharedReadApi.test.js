@@ -2,6 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import express from 'express';
 import { createSharedRouter, sharedResources } from '../routes/shared.js';
+import Registration from '../models/Registration.js';
+
+test('new registrations default TypeOfIdCard to an empty string', () => {
+  assert.equal(new Registration().TypeOfIdCard, '');
+});
 
 test('shared API protects data, validates queries, excludes secrets and disallows writes', async () => {
   const key = 'a'.repeat(64);
@@ -45,6 +50,7 @@ test('shared API protects data, validates queries, excludes secrets and disallow
     const body = await response.json();
     assert.deepEqual(body.pagination, { page: 2, limit: 2, total: 3, totalPages: 2 });
     assert.equal(body.data[0].attendee.email, 'test@example.com');
+    assert.equal(body.data[0].TypeOfIdCard, '');
     assert.doesNotMatch(JSON.stringify(body), /secret|password|resetPasswordToken|manualRegistrationNotes|razorpay/);
     model.find = () => { throw new Error('private database details'); };
     const failure = await fetch(url, { headers });
@@ -58,7 +64,7 @@ test('shared API protects data, validates queries, excludes secrets and disallow
 
 test('all resource endpoints expose only their declared fields and safe nested data', async () => {
   const key = 'b'.repeat(64);
-  const record = { _id: 'record-id', name: 'Test', password: 'PRIVATE', lastOtpHash: 'PRIVATE',
+  const record = { _id: 'record-id', name: 'Test', TypeOfIdCard: 'test-card', password: 'PRIVATE', lastOtpHash: 'PRIVATE',
     uploadTokenHash: 'PRIVATE', qrCodeData: 'PRIVATE', razorpaySignature: 'PRIVATE',
     filePath: 'PRIVATE', cvR2Key: 'PRIVATE', adminNotes: 'PRIVATE',
     userId: { _id: 'user-id', name: 'Test', password: 'PRIVATE' },
@@ -81,6 +87,7 @@ test('all resource endpoints expose only their declared fields and safe nested d
       assert.equal(response.status, 200, name);
       const body = await response.json();
       assert.equal(body.data[0].id, 'record-id');
+      if (name === 'registrations') assert.equal(body.data[0].TypeOfIdCard, 'test-card');
       assert.doesNotMatch(JSON.stringify(body), /PRIVATE/);
       assert.equal((await fetch(`${base}/${name}`, { method: 'DELETE', headers })).status, 405);
     }

@@ -13,7 +13,7 @@ import Attendance from '../models/Attendance.js';
 import FacultyCv from '../models/FacultyCv.js';
 import Feedback from '../models/Feedback.js';
 
-const fields = ['registrationNumber', 'registrationType', 'paymentStatus', 'bookingPhase',
+const fields = ['registrationNumber', 'registrationType', 'TypeOfIdCard', 'paymentStatus', 'bookingPhase',
   'addWorkshop', 'selectedWorkshop', 'addAoaCourse', 'addLifeMembership',
   'accompanyingPersons', 'basePrice', 'totalBase', 'totalGST', 'processingFee', 'totalAmount', 'totalPaid', 'createdAt', 'updatedAt'];
 const attendeeFields = ['name', 'email', 'phone', 'role', 'instituteHospital', 'designation', 'isProfileComplete'];
@@ -89,6 +89,7 @@ export const createSharedRouter = ({ model = Registration, resources = sharedRes
       return res.json({
         data: records.map(record => {
           const row = { id: record._id, ...pick(record, resource.fields.filter(field => !field.includes('.'))) };
+          if (req.params.resource === 'registrations') row.TypeOfIdCard = record.TypeOfIdCard ?? '';
           if (resource.attendee) row.attendee = record.userId ? { id: record.userId._id, ...pick(record.userId, attendeeFields) } : null;
           if (resource.nestedAttendance) row.scanHistory = (record.scanHistory || []).map(scan => pick(scan, ['scannedAt', 'location', 'count']));
           return row;

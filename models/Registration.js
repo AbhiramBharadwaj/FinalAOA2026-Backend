@@ -9,6 +9,10 @@ const registrationSchema = new mongoose.Schema(
       required: true,
       unique: true,
     },
+    TypeOfIdCard: {
+      type: String,
+      default: '',
+    },
     registrationType: {
       type: String,
       enum: [
