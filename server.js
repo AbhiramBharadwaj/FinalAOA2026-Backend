@@ -17,6 +17,7 @@ import sharedRoutes from './routes/shared.js';
 import logger from './utils/logger.js';
 import { getUploadRoot } from './utils/uploadStorage.js';
 import { sendErrorResponse } from './utils/httpError.js';
+import { eventReadOnly } from './middleware/eventReadOnly.js';
 dotenv.config();
 
 const app = express();
@@ -36,6 +37,8 @@ app.use(cors({
 
 // Add this right after to handle the browser's initial "OPTIONS" check
 app.options('*', cors());
+
+app.use('/api', eventReadOnly);
 
 app.use('/api/payment/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json());
