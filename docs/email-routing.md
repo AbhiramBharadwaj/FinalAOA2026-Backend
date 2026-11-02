@@ -17,7 +17,7 @@ recreate the backend .env and restart aoa-backend using PM2.
 Resend usage checks require a full-access RESEND_API_KEY. If usage cannot
 be checked, backend emails go to Zoho. MongoDB counters reserve Resend quota
 across concurrent backend sends, and the provider's reset timestamp starts
-a new counter. Standalone announcement scripts still use Resend directly.
+a new counter.
 
 Check backend logs for "Email provider resend accepted message" or
 "Email provider zoho accepted message" to identify the selected provider.
