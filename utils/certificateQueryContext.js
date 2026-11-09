@@ -16,7 +16,7 @@ export function buildCertificateQueryContext(query, certificates, otherQueries, 
     if (!reasons.length) return [];
     const source = evidence[c.sourceId] || {};
     return [{ id: c.publicId, sourceId: c.sourceId, name: c.name, email: c.email, role: c.role, title: c.title,
-      category: c.category, registrationNumber: c.registrationNumber, councilNumber: c.councilNumber,
+      category: c.category, contentType: c.contentType, registrationNumber: c.registrationNumber, councilNumber: c.councilNumber,
       published: c.published, matchReasons: reasons, nameDiffers: !sameName, possibleMatch: reasons.every(r => r.startsWith('Same full name')),
       creditHours: source.creditHours || '', creditWording: source.creditWording || '', eventDates: source.eventDates || '',
       sourceFile: source.sourceFile || '', sourceRow: source.sourceRow || '',

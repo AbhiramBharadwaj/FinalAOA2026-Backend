@@ -19,7 +19,7 @@ const eventNames = { conference: 'Conference', 'critical-incidents': 'Critical I
 const when = value => value ? new Date(value).toLocaleString() : 'Date not recorded';
 function queryBackground(row) {
   const details = el('details', undefined, 'query-background');
-  details.append(el('summary', 'View certificates, credits and history'));
+  details.append(el('summary', 'More details and history'));
   const content = el('div'); details.append(content); let loaded = false;
   details.ontoggle = async () => {
     if (!details.open || loaded) return;
@@ -62,6 +62,81 @@ function queryBackground(row) {
   return details;
 }
 
+function queryCertificates(row) {
+  const wrap = el('section', undefined, 'query-correction');
+  wrap.append(el('h4', 'Certificates'), el('p', 'Loading certificates…', 'meta'));
+  (async () => {
+    try {
+      const data = await api(`/queries/${row.reference}/context?simple=1`); wrap.replaceChildren(el('h4', 'Certificates'));
+      const certificates = data.certificates;
+      const list = el('div', undefined, 'simple-certificates');
+      for (const c of certificates) {
+        const item = el('div', undefined, 'simple-certificate'), text = el('div');
+        text.append(el('strong', `${c.title} — ${c.role}`), el('p', `${c.name}${c.published ? '' : ' · Hidden / superseded'}`, 'meta'));
+        const view = el('button', c.contentType === 'application/pdf' ? 'Download' : 'View', 'secondary'); view.type = 'button';
+        const image = el('img'); image.alt = `Certificate for ${c.name}`; image.className = 'context-preview'; image.hidden = true;
+        view.onclick = () => perform(view, async () => { const { url } = await api(`/certificates/${c.id}/download`); if (c.contentType === 'application/pdf') { const link = el('a'); link.href = url; link.click(); } else { image.src = url; image.hidden = !image.hidden; } });
+        item.append(text, view); list.append(item, image);
+      }
+      if (!certificates.length) list.append(el('p', 'No matching certificate found. You can still attach and email a corrected certificate.', 'meta'));
+      wrap.append(list);
+      const form = el('form'); form.className = 'correction-form';
+      form.append(el('h4', 'Send corrected certificate'));
+      const selectLabel = el('label', 'Certificate to replace'), select = el('select'); select.name = 'certificateId'; select.setAttribute('aria-label', 'Certificate to replace');
+      const placeholder = el('option', certificates.length ? 'Choose the certificate to correct' : 'Email attachment only'); placeholder.value = ''; select.append(placeholder);
+      for (const c of certificates) { const option = el('option', `${c.title} — ${c.role} — ${c.name}`); option.value = c.id; select.append(option); }
+      if (certificates.some(c => c.id === row.certificateId)) select.value = row.certificateId;
+      else if (certificates.length === 1) select.value = certificates[0].id;
+      select.required = certificates.length > 0; form.append(selectLabel, select);
+      const grid = el('div', undefined, 'form-grid'), name = field(grid, 'Name on corrected certificate', 'name', row.name), role = field(grid, 'Role on corrected certificate', 'role', ''); name.required = true;
+      form.append(grid);
+      const selectedCertificate = () => certificates.find(c => c.id === select.value);
+      const setDetails = () => { const c = selectedCertificate(); if (c) { name.value = c.name; role.value = c.role; } role.required = Boolean(c); role.closest('div').hidden = !c; };
+      select.onchange = setDetails; setDetails();
+      const attachment = field(form, 'Attach corrected certificate or Canva screenshot', 'file', '', 'file'); attachment.accept = '.png,.jpg,.jpeg,.pdf';
+      const paste = el('div', 'Or click here and paste a screenshot (⌘V / Ctrl+V). You can also drop an image here.', 'paste-certificate'); paste.tabIndex = 0; paste.setAttribute('role', 'group'); paste.setAttribute('aria-label', 'Paste corrected certificate screenshot');
+      const preview = el('img'); preview.className = 'context-preview'; preview.alt = 'Corrected attachment preview'; preview.hidden = true;
+      const fileInfo = el('p', '', 'meta'); let chosen, previewUrl;
+      const choose = file => {
+        if (!file) return;
+        chosen = undefined; preview.hidden = true;
+        if (!['image/png', 'image/jpeg', 'application/pdf'].includes(file.type)) { fileInfo.textContent = 'Please attach a PNG, JPEG or PDF.'; return; }
+        if (file.size > 10 * 1024 * 1024) { fileInfo.textContent = 'File must be 10 MB or smaller.'; return; }
+        chosen = file; fileInfo.textContent = `Attached: ${file.name || 'Screenshot.png'} · ${(file.size / 1024).toFixed(0)} KB`;
+        if (previewUrl) URL.revokeObjectURL(previewUrl);
+        preview.hidden = file.type === 'application/pdf';
+        if (!preview.hidden) { previewUrl = URL.createObjectURL(file); preview.src = previewUrl; }
+      };
+      attachment.onchange = () => choose(attachment.files[0]);
+      select.onchange = () => { setDetails(); chosen = undefined; attachment.value = ''; preview.hidden = true; fileInfo.textContent = 'Attach the corrected file for this certificate.'; };
+      paste.onpaste = event => { const file = [...(event.clipboardData?.items || [])].find(i => i.kind === 'file' && i.type.startsWith('image/'))?.getAsFile(); if (file) { event.preventDefault(); choose(file); } };
+      paste.ondragover = event => event.preventDefault(); paste.ondrop = event => { event.preventDefault(); choose(event.dataTransfer.files[0]); };
+      form.append(paste, fileInfo, preview);
+      const message = field(form, 'Message (optional)', 'message', 'Please find your corrected e-certificate attached.', 'textarea'); message.rows = 2;
+      form.append(el('p', `Send to: ${row.email}`, 'correction-recipient'));
+      form.append(el('p', certificates.length ? 'This replaces the selected portal certificate and resolves the request after email acceptance.' : 'This emails the attachment and resolves the request. It does not add a new certificate to the portal.', 'hint'));
+      const feedback = el('p'); feedback.setAttribute('role', 'status');
+      const send = el('button', certificates.length ? 'Save & email corrected certificate' : 'Email attachment & resolve'); send.type = 'submit'; form.append(feedback, send);
+      const requestId = crypto.randomUUID(); let submitted = false;
+      form.onsubmit = async event => {
+        event.preventDefault(); if (submitted) return;
+        if (!chosen) { feedback.textContent = 'Attach a corrected certificate or paste a screenshot first.'; return; }
+        submitted = true; const body = new FormData(form); body.set('file', chosen, chosen.name || 'Screenshot.png'); body.set('requestId', requestId);
+        for (const input of form.querySelectorAll('input,select,textarea,button')) input.disabled = true;
+        paste.contentEditable = 'false'; paste.onpaste = null; paste.ondrop = null;
+        send.textContent = 'Saving & sending…'; feedback.textContent = 'Please keep this page open while the corrected certificate is saved and emailed.';
+        try {
+          const result = await api(`/queries/${row.reference}/resolve-certificate`, { method: 'POST', body });
+          if (result.resolved) { row.status = 'resolved'; const card = wrap.closest('.admin-item'); card.querySelector('.pill').textContent = 'resolved'; const status = card.querySelector('[aria-label="Request status"]'); if (status) status.value = 'resolved'; }
+          feedback.textContent = result.message; send.textContent = '✓ Sent'; send.classList.add('correction-sent');
+        } catch (e) { feedback.textContent = e.message; send.textContent = 'Check send status'; }
+      };
+      wrap.append(form);
+    } catch (e) { wrap.append(el('p', e.message, 'context-warning')); }
+  })();
+  return wrap;
+}
+
 async function load() {
   $('items').replaceChildren(); notice(''); $('status').hidden = tab !== 'queries'; $('filter').hidden = tab !== 'certificates';
   document.querySelector('label[for=status]').hidden = tab !== 'queries'; $('next').hidden = true; $('previous').hidden = true;
@@ -85,9 +160,8 @@ async function load() {
     for (const row of data.items) {
       const card = el('article', undefined, 'admin-item');
       if (tab === 'queries') {
-        card.append(el('span', row.status.replace('_', ' '), 'pill'), el('h3', `${row.reference} · ${row.name}`), el('p', `${row.email}${row.phone ? ' · ' + row.phone : ''}`, 'meta'), el('p', `${row.issue} · Registration: ${row.registrationNumber || 'Not supplied'}`, 'meta'), el('pre', row.remarks));
-        if (row.certificateId) card.append(el('p', `Certificate: ${row.certificateId}`, 'meta'));
-        card.append(el('p', `Event concerned: ${eventNames[row.eventCategory] || 'Not specified'}`, 'meta'), queryBackground(row));
+        card.append(el('span', row.status.replace('_', ' '), 'pill'), el('h3', row.name), el('p', `${row.email}${row.phone ? ' · ' + row.phone : ''}`, 'meta'), el('p', `${row.issue} · Registration: ${row.registrationNumber || 'Not supplied'}`, 'meta'), el('pre', row.remarks));
+        card.append(queryCertificates(row));
         const form = el('form'), select = el('select'); select.setAttribute('aria-label', 'Request status');
         for (const s of ['new', 'in_review', 'resolved']) { const o = el('option', s.replace('_', ' ')); o.value = s; select.append(o); } select.value = row.status; form.append(select);
         const note = field(form, 'Response / resolution', 'resolution', row.resolution, 'textarea'); note.maxLength = 3000;
@@ -95,7 +169,7 @@ async function load() {
         notify.onclick = () => perform(notify, async () => { await api(`/queries/${row.reference}/notify`, { method: 'POST' }); notice('Email update accepted by the provider.'); });
         actions.append(save, notify); form.append(actions);
         form.onsubmit = event => { event.preventDefault(); perform(save, async () => { await api(`/queries/${row.reference}`, { method: 'PUT', ...json({ status: select.value, resolution: note.value }) }); await load(); notice('Request updated.'); }); };
-        card.append(form); const details = el('details'), summary = el('summary', 'Request history'); details.append(summary);
+        const replyOnly = el('details'); replyOnly.append(el('summary', 'Reply without an attachment / change status'), form); card.append(replyOnly, queryBackground(row)); const details = el('details'), summary = el('summary', 'Request history'); details.append(summary);
         for (const h of row.history || []) details.append(el('p', `${new Date(h.at).toLocaleString()} · ${h.actor || 'Organiser'} · ${h.status} · ${h.note}`, 'meta')); card.append(details);
       } else if (tab === 'certificates') {
         card.append(el('span', row.published ? 'Published' : 'Hidden', 'pill'), el('h3', row.name), el('p', `${row.title} · ${row.role}`, 'meta'), el('p', `${row.email} · ${row.publicId}`, 'meta'));

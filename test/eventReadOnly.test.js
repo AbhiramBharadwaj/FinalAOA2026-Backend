@@ -36,7 +36,7 @@ test('only explicit certificate support mutations are reopened', () => {
   for (const [method, path] of [
     ['POST', '/certificates/approved-id-123/email'], ['POST', '/certificates/queries'],
     ['POST', '/certificates/admin/certificates'], ['PUT', '/certificates/admin/certificates/approved-id-123'],
-    ['PUT', '/certificates/admin/queries/AOA-1234567890'], ['POST', '/certificates/admin/queries/AOA-1234567890/notify'],
+    ['PUT', '/certificates/admin/queries/AOA-1234567890'], ['POST', '/certificates/admin/queries/AOA-1234567890/notify'], ['POST', '/certificates/admin/queries/AOA-1234567890/resolve-certificate'],
   ]) assert.equal(run(method, path).allowed, true);
   for (const path of ['/certificates/future', '/certificates/admin/delete-all', '/certificates/admin/queries/bad/notify']) {
     assert.equal(run('POST', path).status, 403);

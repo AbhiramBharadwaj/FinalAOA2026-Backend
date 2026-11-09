@@ -1,5 +1,5 @@
 import express from 'express';
-import { randomUUID, randomBytes } from 'node:crypto';
+import { randomUUID, randomBytes, createHash } from 'node:crypto';
 import multer from 'multer';
 import { rateLimit } from 'express-rate-limit';
 import { certificateRepositories, certificateJsonStore } from '../services/certificateRepository.js';
@@ -116,10 +116,70 @@ export function createCertificateRouter({ certs = certificateRepositories.certs,
   router.get('/admin/queries/:reference/context', wrap(async (req, res) => {
     const row = await queries.findOne({ reference: req.params.reference }).lean();
     if (!row) return res.status(404).json({ message: 'Query not found.' });
+    if (req.query.simple === '1') return res.json(buildCertificateQueryContext(row, await certs.find({}).lean(), [], []));
     const [certificates, requests, emailRequests, sources] = await Promise.all([
       certs.find({}).lean(), queries.find({}).lean(), deliveries.find({}).lean(), evidence(),
     ]);
     res.json(buildCertificateQueryContext(row, certificates, requests, emailRequests, sources));
+  }));
+  router.post('/admin/queries/:reference/resolve-certificate', upload.single('file'), wrap(async (req, res) => {
+    const query = await queries.findOne({ reference: req.params.reference }).lean();
+    if (!query) return res.status(404).json({ message: 'Query not found.' });
+    const requestId = boundedText(req.body.requestId, 'Request ID', 16, 80);
+    if (!/^[a-zA-Z0-9_-]+$/.test(requestId)) throw invalid('Invalid request ID.');
+    const certificateId = boundedText(req.body.certificateId || '', 'Certificate', 0, 80);
+    if (!req.file) throw invalid('Attach a corrected certificate or screenshot.');
+    const contentType = fileType(req.file.buffer);
+    const name = boundedText(req.body.name, 'Name on corrected certificate', 2);
+    const message = boundedText(req.body.message || 'Please find your corrected e-certificate attached.', 'Message', 5, 3000);
+    const fingerprint = createHash('sha256').update(req.file.buffer).update(JSON.stringify({ certificateId, name, role: req.body.role || '', message })).digest('hex');
+    const old = await deliveries.findOne({ requestId }).lean();
+    if (old) {
+      if (old.queryReference !== query.reference || old.to !== query.email || old.certificateId !== certificateId || old.correctionFingerprint !== fingerprint) throw invalid('Request ID already used.');
+      return res.status(old.status === 'accepted' ? 200 : 409).json({ status: old.status, resolved: false, message: old.status === 'accepted' ? 'Corrected certificate email already accepted. No duplicate email sent. Refresh to check request status.' : 'This send was already attempted. Check its email history before trying again.' });
+    }
+
+    let row;
+    if (certificateId) {
+      const certificates = await certs.find({}).lean();
+      const context = buildCertificateQueryContext(query, certificates, [], []);
+      if (!context.certificates.some(c => c.id === certificateId)) throw invalid('Select a certificate listed for this request.');
+      row = await certs.findOne({ publicId: certificateId });
+      if (!row) throw invalid('Certificate not found.');
+    }
+    const role = row ? boundedText(req.body.role || row.role, 'Role', 2, 80) : '';
+    // Reserve before uploads or provider calls. An uncertain send is never automatically repeated.
+    let attempt;
+    try { attempt = await deliveries.create({ requestId, certificateId, queryReference: query.reference, correctionFingerprint: fingerprint, to: query.email, status: 'pending' }); }
+    catch (e) { if (e.code === 11000) return res.status(409).json({ message: 'This request is already being processed.' }); throw e; }
+    let providerStarted = false;
+    try {
+      const stored = await storage().put(req.file.buffer, contentType);
+      if (row) {
+        const previousObjectKey = row.objectKey;
+        Object.assign(row, stored, { name, role, searchName: normalizeCertificateName(name), personKey: personKey(row.email, name) });
+        row.history.push({ at: new Date(), actor: req.admin?.email || req.actorName, action: 'updated', note: `Corrected attachment uploaded for query ${query.reference}. Previous file: ${previousObjectKey || 'not recorded'}` });
+        await row.save();
+      }
+      const extension = contentType === 'image/jpeg' ? 'jpg' : contentType === 'application/pdf' ? 'pdf' : 'png';
+      const email = certificateEmail({ name, role: role || 'presentation', category: row?.category || 'conference', title: row?.title || 'AOACON 2026' });
+      providerStarted = true;
+      const result = await mail({ to: query.email, ...email,
+        subject: 'AOACON 2026 — Your Corrected E-Certificate',
+        text: `Dear ${name},\n\n${message}\n\nRegards,\nAOACON 2026 Organising Committee`,
+        html: email.html.replace(/<p>Please find attached[\s\S]*?<\/p>/, () => `<p>${escapeHtml(message).replace(/\n/g, '<br>')}</p>`),
+        attachments: [{ filename: `AOACON-Corrected-${certificateId || query.reference}.${extension}`, content: req.file.buffer, contentType }] });
+      await deliveries.updateOne({ _id: attempt._id }, { $set: { status: 'accepted', provider: result?.provider, messageId: result?.messageId, objectKey: stored.objectKey, sha256: stored.sha256 } });
+    } catch (e) {
+      await deliveries.updateOne({ _id: attempt._id }, { $set: { status: !providerStarted || e.rejected ? 'failed' : 'unknown' } });
+      return res.status(502).json({ message: providerStarted ? 'Email acceptance could not be confirmed. Check email history before sending again.' : 'The correction could not be saved. No email was sent. Check the certificate record before trying again.' });
+    }
+    try {
+      await queries.updateOne({ reference: query.reference }, { $set: { status: 'resolved', resolution: message, certificateId: certificateId || query.certificateId || '', eventCategory: row?.category || query.eventCategory || 'unspecified' }, $push: { history: { at: new Date(), actor: req.admin?.email || req.actorName, status: 'resolved', note: `Corrected certificate email accepted for ${query.email}. Request ${requestId}.` } } });
+      res.json({ status: 'accepted', resolved: true, message: '✓ Corrected certificate sent for delivery. This request is resolved.' });
+    } catch (e) {
+      res.json({ status: 'accepted', resolved: false, message: '✓ Corrected certificate email accepted. Please update the request status manually; saving its status failed.' });
+    }
   }));
   router.put('/admin/queries/:reference', wrap(async (req, res) => {
     const status = req.body.status;
