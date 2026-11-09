@@ -12,6 +12,7 @@ function openQuery(certificate) {
   $('query-certificate').value = certificate?.id || '';
   if (certificate) { $('query-name').value = certificate.name; $('query-registration').value = certificate.registrationNumber; $('query-issue').value = 'role'; }
   else if ($('search').value.trim() && !/\d/.test($('search').value)) $('query-name').value = $('search').value.trim();
+  $('query-event').value = certificate?.category || '';
   $('query-dialog').showModal();
 }
 let selected, emailRequestId, emailBusy = false;

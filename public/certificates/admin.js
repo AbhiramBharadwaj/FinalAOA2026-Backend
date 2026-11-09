@@ -15,6 +15,53 @@ function field(form, label, name, value, type = 'text') {
   box.append(lab, input); form.append(box); return input;
 }
 async function perform(button, action) { button.disabled = true; try { await action(); } catch (e) { notice(e.message); } finally { button.disabled = false; } }
+const eventNames = { conference: 'Conference', 'critical-incidents': 'Critical Incidents', pocus: 'Obstetric PoCUS', maternal: 'Maternal Resuscitation', labour: 'Labour Analgesia', occc: 'Certified Critical Care', presentation: 'Paper / poster', 'video-award': 'Video award', unspecified: 'Not specified' };
+const when = value => value ? new Date(value).toLocaleString() : 'Date not recorded';
+function queryBackground(row) {
+  const details = el('details', undefined, 'query-background');
+  details.append(el('summary', 'View certificates, credits and history'));
+  const content = el('div'); details.append(content); let loaded = false;
+  details.ontoggle = async () => {
+    if (!details.open || loaded) return;
+    loaded = true; content.replaceChildren(el('p', 'Loading certificate background…', 'meta'));
+    try {
+      const data = await api(`/queries/${row.reference}/context`); content.replaceChildren();
+      content.append(el('p', data.selectedCertificateId ? 'This query was submitted from a particular certificate, highlighted below.' : 'No particular certificate was selected. Confirm which of the records below is affected before making a correction.', 'context-warning'));
+      content.append(el('h4', `${data.certificates.length} matching certificate records`));
+      if (!data.certificates.length) content.append(el('p', 'No matching certificate records found. Ask for the registered name, registration / council number and course attended.'));
+      for (const c of data.certificates) {
+        const box = el('section', undefined, 'context-certificate');
+        box.append(el('span', `${c.role} · ${c.published ? 'Available' : 'Hidden / superseded'}${c.id === data.selectedCertificateId ? ' · Selected in query' : ''}`, 'pill'), el('h4', c.title), el('p', `Name printed: ${c.name}`), el('p', `Certificate contact: ${c.email}`, 'meta'));
+        if (c.nameDiffers) box.append(el('p', 'The printed name differs from the name entered in this query.', 'context-warning'));
+        box.append(el('p', `Match: ${c.matchReasons.join(' · ')}`, c.possibleMatch ? 'context-warning' : 'meta'));
+        box.append(el('p', `Certificate reference: ${c.sourceId} · Council number: ${c.councilNumber || 'Not recorded'} · Registration: ${c.registrationNumber || 'Not recorded'}`, 'meta'));
+        if (c.changes.some(h => h.action === 'updated')) box.append(el('p', 'Organiser changes are recorded. Check the current preview; the original source details below may describe an earlier certificate.', 'context-warning'));
+        if (c.creditHours) box.append(el('p', `Credit hours in final source sheet: ${c.creditHours}`));
+        if (c.creditWording) box.append(el('p', `Original certificate credit wording (OCR): ${c.creditWording}`));
+        if (!c.creditHours && !c.creditWording) box.append(el('p', 'Credit hours are not recorded in the background data; check the certificate preview.', 'meta'));
+        if (c.eventDates) box.append(el('p', `Event dates / certificate wording: ${c.eventDates}`, 'meta'));
+        if (c.sourceFile) box.append(el('p', `Original source: ${c.sourceFile}${c.sourceRow ? ' · Row ' + c.sourceRow : ''}`, 'meta'));
+        const preview = el('button', 'Preview certificate', 'secondary'); preview.type = 'button';
+        const image = el('img'); image.alt = `Certificate for ${c.name} — ${c.title}`; image.className = 'context-preview'; image.hidden = true;
+        preview.onclick = () => perform(preview, async () => { const { url } = await api(`/certificates/${c.id}/download`); image.src = url; image.hidden = false; }); box.append(preview, image);
+        box.append(el('h4', 'Original certificate emails'));
+        if (!c.historicalEmails.length) box.append(el('p', 'No original bulk-email ledger entry available for this certificate.', 'meta'));
+        for (const h of c.historicalEmails) box.append(el('p', `${when(h.at)} · ${h.status} · ${h.to} · ${h.provider || 'Provider not recorded'}`, 'meta'));
+        const changes = el('details'); changes.append(el('summary', 'Certificate change history'));
+        for (const h of c.changes) changes.append(el('p', `${when(h.at)} · ${h.actor || 'Organiser'} · ${h.action} · ${h.note}`, 'meta'));
+        box.append(changes); content.append(box);
+      }
+      const history = el('details'); history.append(el('summary', `Portal email requests (${data.emailRequests.length})`));
+      for (const d of data.emailRequests) history.append(el('p', `${when(d.createdAt)} · ${d.status} · ${d.to} · ${data.certificates.find(c => c.id === d.certificateId)?.title || d.certificateId}`, 'meta'));
+      content.append(history);
+      const prior = el('details'); prior.open = data.previousQueries.length > 0; prior.append(el('summary', `Other queries from this contact (${data.previousQueries.length})`));
+      for (const q of data.previousQueries) { const item = el('div', undefined, 'context-certificate'); item.append(el('p', `${q.reference} · ${q.status} · ${when(q.createdAt)}`, 'meta'), el('pre', q.remarks)); if (q.resolution) item.append(el('p', `Response: ${q.resolution}`)); prior.append(item); }
+      content.append(prior, el('p', data.note, 'meta'));
+    } catch (e) { content.replaceChildren(el('p', e.message, 'context-warning')); loaded = false; }
+  };
+  return details;
+}
+
 async function load() {
   $('items').replaceChildren(); notice(''); $('status').hidden = tab !== 'queries'; $('filter').hidden = tab !== 'certificates';
   document.querySelector('label[for=status]').hidden = tab !== 'queries'; $('next').hidden = true; $('previous').hidden = true;
@@ -40,6 +87,7 @@ async function load() {
       if (tab === 'queries') {
         card.append(el('span', row.status.replace('_', ' '), 'pill'), el('h3', `${row.reference} · ${row.name}`), el('p', `${row.email}${row.phone ? ' · ' + row.phone : ''}`, 'meta'), el('p', `${row.issue} · Registration: ${row.registrationNumber || 'Not supplied'}`, 'meta'), el('pre', row.remarks));
         if (row.certificateId) card.append(el('p', `Certificate: ${row.certificateId}`, 'meta'));
+        card.append(el('p', `Event concerned: ${eventNames[row.eventCategory] || 'Not specified'}`, 'meta'), queryBackground(row));
         const form = el('form'), select = el('select'); select.setAttribute('aria-label', 'Request status');
         for (const s of ['new', 'in_review', 'resolved']) { const o = el('option', s.replace('_', ' ')); o.value = s; select.append(o); } select.value = row.status; form.append(select);
         const note = field(form, 'Response / resolution', 'resolution', row.resolution, 'textarea'); note.maxLength = 3000;

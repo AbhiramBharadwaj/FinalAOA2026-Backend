@@ -111,3 +111,8 @@ test('manual certificate creation rejects Nursing and never uploads an invalid m
   assert.match(result.body.message, /Invalid certificate category/);
   assert.equal(uploaded, false);
 });
+
+test('query background endpoint requires organiser authentication',async t=>{
+ const fetcher=await appFor(t,{evidence:()=>{throw new Error('Must not read private evidence');}});
+ assert.equal((await fetcher('/admin/queries/AOA-1234567890/context')).status,401);
+});

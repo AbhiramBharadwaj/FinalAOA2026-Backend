@@ -11,3 +11,5 @@
 #email-form button[type=submit][data-state=sending]:before{content:'';width:16px;height:16px;border:2px solid #ffffff66;border-top-color:white;border-radius:50%;animation:email-spin .7s linear infinite}
 @keyframes email-spin{to{transform:rotate(360deg)}}
 @media(prefers-reduced-motion:reduce){#email-form button[type=submit][data-state=sending]:before{animation:none}}
+
+.query-background{border:1px solid var(--line);border-radius:6px;padding:16px;margin:18px 0;background:#faf9f6}.query-background>summary{font-weight:600;cursor:pointer}.context-certificate{background:white;padding:16px;border:1px solid var(--line);border-radius:5px;margin:12px 0}.context-certificate h4{margin:8px 0}.context-warning{color:#8b5010;background:#fff6df;border-left:3px solid var(--gold);padding:10px 12px;font-size:13px;margin:12px 0}.context-preview{display:block;width:100%;height:auto;margin-top:12px;border:1px solid var(--line)}.context-certificate p{overflow-wrap:anywhere}

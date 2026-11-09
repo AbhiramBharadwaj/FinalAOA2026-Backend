@@ -2,7 +2,8 @@ import express from 'express';
 import { randomUUID, randomBytes } from 'node:crypto';
 import multer from 'multer';
 import { rateLimit } from 'express-rate-limit';
-import { certificateRepositories } from '../services/certificateRepository.js';
+import { certificateRepositories, certificateJsonStore } from '../services/certificateRepository.js';
+import { buildCertificateQueryContext } from '../utils/certificateQueryContext.js';
 import { authenticateAdmin } from '../middleware/auth.js';
 import { sendEmail } from '../utils/email.js';
 import { certificateStorage } from '../services/certificateStorage.js';
@@ -21,7 +22,7 @@ const wrap = fn => (req, res, next) => Promise.resolve(fn(req, res, next)).catch
 export function createCertificateRouter({ certs = certificateRepositories.certs, queries = certificateRepositories.queries,
   deliveries = certificateRepositories.deliveries, adminAuth = authenticateAdmin, mail = sendEmail,
   storage = certificateStorage, enabled = () => process.env.CERTIFICATE_PORTAL_ENABLED === 'true',
-  limiters = true } = {}) {
+  limiters = true, evidence = async () => (await certificateJsonStore().get('portal/source-context.json'))?.value.records || {} } = {}) {
   const router = express.Router();
   router.use((req, res, next) => { res.set('Cache-Control', 'no-store'); next(); });
   const enabledOnly = (req, res, next) => enabled() ? next() : res.status(503).json({ message: 'The certificate portal is being prepared. Please check back soon.' });
@@ -91,7 +92,9 @@ export function createCertificateRouter({ certs = certificateRepositories.certs,
     if (!issueKinds.includes(req.body.issue)) throw invalid('Choose an issue category.');
     const certificateId = boundedText(req.body.certificateId || '', 'Certificate', 0, 80);
     if (certificateId && !await certs.exists({ publicId: certificateId, published: true })) throw invalid('Invalid certificate.');
-    const row = await queries.create({ reference: `AOA-${randomBytes(5).toString('hex').toUpperCase()}`,
+    const eventCategory = req.body.eventCategory || 'unspecified';
+    if (![...certificateCategories, 'unspecified'].includes(eventCategory)) throw invalid('Choose the event concerned.');
+    const row = await queries.create({ eventCategory, reference: `AOA-${randomBytes(5).toString('hex').toUpperCase()}`,
       name, email, certificateId, issue: req.body.issue,
       phone: boundedText(req.body.phone || '', 'Mobile number', 0, 30),
       registrationNumber: boundedText(req.body.registrationNumber || '', 'Registration number', 0, 80),
@@ -109,6 +112,14 @@ export function createCertificateRouter({ certs = certificateRepositories.certs,
     const filter = status === 'all' ? {} : { status };
     const [items, total] = await Promise.all([queries.find(filter).sort({ createdAt: -1 }).skip((page - 1) * 30).limit(30).lean(), queries.countDocuments(filter)]);
     res.json({ items, total, page });
+  }));
+  router.get('/admin/queries/:reference/context', wrap(async (req, res) => {
+    const row = await queries.findOne({ reference: req.params.reference }).lean();
+    if (!row) return res.status(404).json({ message: 'Query not found.' });
+    const [certificates, requests, emailRequests, sources] = await Promise.all([
+      certs.find({}).lean(), queries.find({}).lean(), deliveries.find({}).lean(), evidence(),
+    ]);
+    res.json(buildCertificateQueryContext(row, certificates, requests, emailRequests, sources));
   }));
   router.put('/admin/queries/:reference', wrap(async (req, res) => {
     const status = req.body.status;
