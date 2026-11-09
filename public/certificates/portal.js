@@ -14,10 +14,26 @@ function openQuery(certificate) {
   else if ($('search').value.trim() && !/\d/.test($('search').value)) $('query-name').value = $('search').value.trim();
   $('query-dialog').showModal();
 }
-let selected, emailRequestId;
+let selected, emailRequestId, emailBusy = false;
+const acceptedEmails = new Map();
+function emailState(state, message = '') {
+  const button = $('email-form').querySelector('button[type=submit]');
+  button.dataset.state = state;
+  button.disabled = state !== 'idle';
+  button.textContent = ({ idle: 'Send certificate', sending: 'Sending…', sent: '✓ Sent', error: 'Request not confirmed' })[state];
+  button.setAttribute('aria-busy', String(state === 'sending'));
+  $('delivery-email').disabled = state !== 'idle';
+  $('email-feedback').dataset.state = state;
+  $('email-feedback').textContent = message;
+  $('email-dialog').querySelector('[data-close]').disabled = state === 'sending';
+}
+$('email-dialog').addEventListener('cancel', event => { if (emailBusy) event.preventDefault(); });
 function openEmail(certificate) {
   selected = certificate; emailRequestId = crypto.randomUUID(); $('email-form').reset();
-  $('email-feedback').textContent = ''; $('email-description').textContent = `${certificate.name} · ${certificate.title} · ${certificate.role}`;
+  const accepted = acceptedEmails.get(certificate.id);
+  emailState(accepted ? 'sent' : 'idle', accepted ? `✓ Email accepted for ${accepted}. Please check your inbox and spam folder.` : '');
+  if (accepted) $('delivery-email').value = accepted;
+  $('email-description').textContent = `${certificate.name} · ${certificate.title} · ${certificate.role}`;
   $('email-dialog').showModal();
 }
 document.querySelectorAll('[data-close]').forEach(b => b.addEventListener('click', () => b.closest('dialog').close()));
@@ -50,13 +66,19 @@ $('search-form').addEventListener('submit', async event => {
   finally { button.disabled = false; button.textContent = 'Find certificates ↗'; }
 });
 $('email-form').addEventListener('submit', async event => {
-  event.preventDefault(); const button = event.submitter; button.disabled = true;
+  event.preventDefault();
+  if (emailBusy || acceptedEmails.has(selected.id)) return;
+  emailBusy = true;
+  const certificate = selected;
   const email = $('delivery-email').value.trim();
+  emailState('sending', 'Sending your certificate… Please keep this window open.');
   try {
-    const result = await api(`/${selected.id}/email`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, requestId: emailRequestId }) });
-    $('email-feedback').textContent = result.message;
-  } catch (e) { $('email-feedback').textContent = e.message; }
-  finally { button.disabled = false; }
+    await api(`/${certificate.id}/email`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, requestId: emailRequestId }) });
+    acceptedEmails.set(certificate.id, email);
+    emailState('sent', `✓ Email accepted for ${email}. Please check your inbox and spam folder.`);
+  } catch (e) {
+    emailState('error', `${e.message} You can close this window and use “Report a correction / Submit a query” for help.`);
+  } finally { emailBusy = false; }
 });
 $('query-form').addEventListener('submit', async event => {
   event.preventDefault(); const button = event.submitter; button.disabled = true;
