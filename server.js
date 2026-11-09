@@ -14,6 +14,9 @@ import attendanceRoutes from './routes/attendance.js';
 import healthRoutes from './routes/health.js';
 import facultyCvRoutes from './routes/facultyCv.js';
 import sharedRoutes from './routes/shared.js';
+import certificateRoutes from './routes/certificates.js';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import logger from './utils/logger.js';
 import { getUploadRoot } from './utils/uploadStorage.js';
 import { sendErrorResponse } from './utils/httpError.js';
@@ -67,8 +70,12 @@ app.use('/api/attendance', attendanceRoutes);
 app.use('/api/health', healthRoutes);
 app.use('/api/faculty-cv', facultyCvRoutes);
 app.use('/api/shared', sharedRoutes);
+app.use('/api/certificates', certificateRoutes);
+app.use('/certificates', express.static(path.join(path.dirname(fileURLToPath(import.meta.url)), 'public/certificates')));
 
-mongoose.connect("mongodb+srv://bhaskarAntoty123:MQEJ1W9gtKD547hy@bhaskarantony.wagpkay.mongodb.net/AOA1?retryWrites=true&w=majority")
+const databaseUri = process.env.MONGODB_URI || process.env.MONGO_URI;
+if (!databaseUri) throw new Error('Database connection is not configured.');
+mongoose.connect(databaseUri)
   .then(() => logger.info('MongoDB connected.'))
   .catch(err => logger.error('MongoDB connection error.', { message: err?.message || err }));
 

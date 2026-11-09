@@ -18,6 +18,21 @@ jobs:
           cp -a "$GITHUB_WORKSPACE/uploads/." "$UPLOAD_ROOT/"
         fi
 
+    - name: Preserve existing database configuration
+      run: |
+        node --input-type=module <<'NODE'
+        import fs from 'node:fs';
+        const destination = '/home/ubuntu/aoa-data/database.env';
+        if (!fs.existsSync(destination) && fs.existsSync('server.js')) {
+          const source = fs.readFileSync('server.js', 'utf8');
+          const uri = source.match(/mongodb\+srv:\/\/[^'"\s]+/)?.[0];
+          if (uri) {
+            fs.mkdirSync('/home/ubuntu/aoa-data', { recursive: true });
+            fs.writeFileSync(destination, `MONGODB_URI=${uri}\n`, { mode: 0o600 });
+          }
+        }
+        NODE
+
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -25,6 +40,9 @@ jobs:
       env:
         NODE_OPTIONS: --max-old-space-size=256
       run: npm ci --omit=dev --no-audit --no-fund --maxsockets=1
+
+    - name: Verify certificate portal tests
+      run: node --test test/certificatePortal.test.js test/certificateRepository.test.js test/eventReadOnly.test.js
 
     - name: Create .env file
       env:
@@ -42,6 +60,26 @@ jobs:
           printf '\n' >> .env
           cat "$shared_key_file" >> .env
         fi
+
+    - name: Load database and certificate portal configuration
+      run: |
+        database_env=/home/ubuntu/aoa-data/database.env
+        if [ -f "$database_env" ]; then
+          printf '\n' >> .env
+          cat "$database_env" >> .env
+        fi
+        printf '\nCERTIFICATE_BUCKET_NAME=aoacon2026-certificates-private\nCERTIFICATE_PORTAL_ENABLED=true\n' >> .env
+        chmod 600 .env
+
+    - name: Verify private Cloudflare certificate index
+      run: |
+        node --input-type=module <<'NODE'
+        import 'dotenv/config';
+        import { certificateRepositories } from './services/certificateRepository.js';
+        const count = await certificateRepositories.certs.countDocuments({});
+        if (count < 1340) throw new Error('The approved certificate index is incomplete.');
+        console.log(`Private Cloudflare certificate index verified: ${count} records.`);
+        NODE
 
     - name: Start or Restart Application
       env:

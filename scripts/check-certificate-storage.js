@@ -1,0 +1,22 @@
+// Read-only check of private access, signed download and attachment integrity.
+import 'dotenv/config';
+import fs from 'node:fs/promises';
+import { createHash } from 'node:crypto';
+import { certificateStorage } from '../services/certificateStorage.js';
+const uploaded=JSON.parse(await fs.readFile('reports/certificate-portal/storage-upload.json','utf8'));
+const first=uploaded.records[0];
+if(!first) throw new Error('Upload a certificate first.');
+const row={ ...first, publicId: 'storage-verification' };
+const unsigned=new URL(`${uploaded.bucket}/${first.objectKey}`, process.env.R2_ENDPOINT.endsWith('/') ? process.env.R2_ENDPOINT : process.env.R2_ENDPOINT+'/');
+const publicResponse=await fetch(unsigned);
+await publicResponse.body?.cancel();
+if(![400,401,403].includes(publicResponse.status)) throw new Error(`Unsigned access was not rejected as expected: ${publicResponse.status}`);
+const storage=certificateStorage();
+const response=await fetch(await storage.download(row));
+if(!response.ok) throw new Error(`Signed download failed: ${response.status}`);
+const bytes=Buffer.from(await response.arrayBuffer());
+if(createHash('sha256').update(bytes).digest('hex')!==row.sha256) throw new Error('Signed download hash mismatch');
+await storage.read(row);
+const report={checkedAt:new Date().toISOString(),unsignedStatus:publicResponse.status,signedStatus:response.status,sha256Matched:true,attachmentReadMatched:true,bucket:uploaded.bucket};
+await fs.writeFile('reports/certificate-portal/storage-verification.json',JSON.stringify(report,null,2)+'\n');
+console.log('PASS: unsigned access rejected; signed download and attachment bytes match the approved certificate.');

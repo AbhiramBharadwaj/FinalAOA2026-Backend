@@ -14,3 +14,7 @@ backups/
 
 # Local spreadsheet sync credentials and generated snapshots
 .local/
+
+# Private certificate records, mappings and delivery evidence
+/reports/
+/tools/certificates/
