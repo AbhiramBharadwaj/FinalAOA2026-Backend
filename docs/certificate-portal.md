@@ -1,6 +1,6 @@
-# AOACON certificate portal — local review draft
+# AOACON certificate portal
 
-The public portal is served by the existing Express backend at `/certificates/`. The organiser workspace is `/certificates/admin.html`, using the existing administrator email and password. It is not yet linked from the main frontend or deployed.
+The public portal is served by the existing Express backend at `/certificates/`. The organiser workspace is `/certificates/admin.html`, using the existing administrator email and password. It is deployed and linked from the main frontend. Public URL: https://www.aoacon2026.com/certificates/ ; organiser URL: https://www.aoacon2026.com/certificates/admin.html .
 
 ## Review locally without sending anything
 
@@ -51,7 +51,7 @@ Files are checked against the prior identity-verified hashes and mappings. The f
 
 Keep the reports and manifests private. They contain personal data and local paths. Only `public/certificates/` is served as static content.
 
-## Storage and activation — after draft review
+## Storage and activation
 
 The certificates must be copied to private cloud storage before visitors can access them while this Mac is offline. This implementation reuses the backend's Cloudflare R2 integration for both files and metadata. No MongoDB collections are used for the portal. It stores the approved exports unchanged, with SHA-256 integrity checks for emailed attachments.
 
