@@ -4,9 +4,7 @@ import FacultyCv from '../models/FacultyCv.js';
 const DEFAULT_SHEET_CSV_URL =
   'https://docs.google.com/spreadsheets/d/1_8x62qo_-2Uw76n_vMa2ud-MZxkIL2zvbHp0AZ4FdZs/export?format=csv&gid=0';
 
-const mongoUri =
-  process.env.MONGODB_URI ||
-  'mongodb+srv://bhaskarAntoty123:MQEJ1W9gtKD547hy@bhaskarantony.wagpkay.mongodb.net/AOA1?retryWrites=true&w=majority';
+const mongoUri = process.env.MONGODB_URI || process.env.MONGO_URI;
 
 const csvUrl = process.env.FACULTY_SHEET_CSV_URL || DEFAULT_SHEET_CSV_URL;
 
@@ -113,8 +111,6 @@ const run = async () => {
   await mongoose.disconnect();
 };
 
-run().catch(async (error) => {
-  console.error(error);
-  await mongoose.disconnect().catch(() => {});
-  process.exit(1);
-});
+// Preserve the importer for archive/reference without executing conference writes.
+console.error('AOACON 2026 has concluded. Faculty CV sync is retired; existing records are preserved.');
+process.exitCode = 1;

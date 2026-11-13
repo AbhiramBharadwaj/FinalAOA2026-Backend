@@ -146,4 +146,8 @@ async function main() {
   if (verified.images.length !== qrItems.length || verified.images.some(i => !expected.has(`${i.registrationNumber}:${i.row}`))) throw new Error('QR image verification failed. Rerun the complete sync after 15 minutes.');
   console.log(`Updated and verified all six tabs and ${qrItems.length} QR images (${images.length} uploaded).\n${verified.url}\nPrevious cell values saved: ${backupFile}`);
 }
-if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) main().catch(error => { console.error(error.message); process.exitCode = 1; });
+// Retain source and pure exports for archive/reference, but retire executable sync.
+if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  console.error('AOACON 2026 has concluded. Registration sheet sync is retired; historical sheets remain view-only.');
+  process.exitCode = 1;
+}
